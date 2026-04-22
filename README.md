@@ -1,11 +1,10 @@
 # opengrok-go-mcp
 
-OpenCode-friendly MCP server for project-scoped OpenGrok search.
+MCP server for searching and reading OpenGrok code from OpenCode.
 
-## Running
+## OpenCode
 
-For OpenCode `type: "local"` usage, run the command as the MCP process and
-pass OpenGrok settings through environment variables:
+Add this to `opencode.json`:
 
 ```jsonc
 {
@@ -22,22 +21,32 @@ pass OpenGrok settings through environment variables:
       "environment": {
         "OPENGROK_MCP_BASE_URL": "https://grok.example.com/source/api/v1",
         "OPENGROK_MCP_WEB_BASE_URL": "https://grok.example.com/source",
-        "OPENGROK_MCP_PROJECTS": "platform,tools",
+        "OPENGROK_MCP_PROJECTS": "platform",
         "OPENGROK_MCP_DEFAULT_PROJECT": "platform",
-        "OPENGROK_MCP_API_TOKEN": "your-api-token"
+        "OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
       }
     }
   }
 }
 ```
 
-Use `OPENGROK_MCP_BASIC_AUTH_TOKEN` instead of `OPENGROK_MCP_API_TOKEN` for
-Basic auth. The Basic token value should be pre-encoded. At startup, the server
-detects which OpenGrok capabilities are available and only exposes working MCP
-tools. If `/projects/indexed` is forbidden but search works, search tools remain
-available.
+For Basic auth, use only the base64 token value:
 
-To run the HTTP endpoint manually:
+```jsonc
+"OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
+```
+
+Do not include the `Basic ` prefix. Set exactly one of
+`OPENGROK_MCP_API_TOKEN` or `OPENGROK_MCP_BASIC_AUTH_TOKEN`.
+
+`OPENGROK_MCP_PROJECTS` is optional but recommended when `/projects/indexed` is
+not accessible. When configured, explicit project arguments must match this
+list. Agents should normally omit `project` and let the server use
+`OPENGROK_MCP_DEFAULT_PROJECT`.
+
+## HTTP Mode
+
+OpenCode should use local command mode. For manual HTTP use:
 
 ```bash
 OPENGROK_MCP_TRANSPORT=http \
@@ -52,46 +61,45 @@ The HTTP MCP endpoint is available at:
 http://127.0.0.1:8765/mcp
 ```
 
-## Flags
+## Environment
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--transport` | `stdio` | MCP transport: `stdio` for local command clients, or `http` for Streamable HTTP. |
-| `--listen` | `127.0.0.1:8765` | Address the local MCP HTTP server listens on. |
-| `--base-url` | | OpenGrok API base URL ending in `/api/v1`. |
-| `--web-base-url` | | OpenGrok web UI base URL used for clickable links. |
-| `--default-project` | | Default OpenGrok project when a request does not specify one. |
-| `--project-required` | `true` | Require a project to be specified or resolved from the default project. |
-| `--read-timeout` | `10s` | HTTP server read timeout. |
-| `--write-timeout` | `10s` | HTTP server write timeout. |
-| `--log-level` | `info` | Logging level. |
+Required:
 
-## Environment Variables
+- `OPENGROK_MCP_BASE_URL`: OpenGrok API base URL ending in `/api/v1`.
+- `OPENGROK_MCP_WEB_BASE_URL`: OpenGrok web UI base URL, used for citations and raw file fallback.
 
-| Variable | Description |
-| --- | --- |
-| `OPENGROK_MCP_TRANSPORT` | MCP transport: `stdio` for local command clients, or `http` for Streamable HTTP. |
-| `OPENGROK_MCP_LISTEN` | Address the local MCP HTTP server listens on. |
-| `OPENGROK_MCP_BASE_URL` | OpenGrok API base URL ending in `/api/v1`. |
-| `OPENGROK_MCP_WEB_BASE_URL` | OpenGrok web UI base URL used for clickable links. |
-| `OPENGROK_MCP_PROJECTS` | Optional comma-separated project list. Use this when `/projects/indexed` is not accessible. |
-| `OPENGROK_MCP_PROBE_FILE` | Optional `project/path/to/file` used to verify whether `get_file_context` can be exposed. |
-| `OPENGROK_MCP_DEFAULT_PROJECT` | Default OpenGrok project when a request does not specify one. |
-| `OPENGROK_MCP_PROJECT_REQUIRED` | Whether a project must be specified or resolved from the default project. |
-| `OPENGROK_MCP_LOG_LEVEL` | Logging level. |
-| `DEBUG` | Set to `1` to log OpenGrok API requests and responses to stderr. Defaults to disabled. |
-| `OPENGROK_MCP_API_TOKEN` | Sends `Authorization: Bearer <token>` to OpenGrok. |
-| `OPENGROK_MCP_BASIC_AUTH_TOKEN` | Sends `Authorization: Basic <token>` to OpenGrok. The token should be pre-encoded. Set exactly one OpenGrok auth token; configuring both tokens is an error. |
+Common optional settings:
+
+- `OPENGROK_MCP_API_TOKEN`: sends `Authorization: Bearer <token>`.
+- `OPENGROK_MCP_BASIC_AUTH_TOKEN`: sends `Authorization: Basic <token>`.
+- `OPENGROK_MCP_PROJECTS`: comma-separated known OpenGrok projects.
+- `OPENGROK_MCP_DEFAULT_PROJECT`: project used when tool calls omit `project`.
+- `DEBUG=1`: log OpenGrok API and web requests to stderr.
+- `OPENGROK_MCP_TRANSPORT=http`: enable Streamable HTTP mode.
+- `OPENGROK_MCP_LISTEN`: HTTP listen address, default `127.0.0.1:8765`.
+
+Less common:
+
+- `OPENGROK_MCP_PROJECT_REQUIRED`: default `true`.
+- `OPENGROK_MCP_PROBE_FILE`: optional `project/path/to/file` probe for file-read capability.
+- `OPENGROK_MCP_LOG_LEVEL`: reserved logging level setting.
 
 ## Tools
 
-The server exposes only tools that pass startup capability checks:
+At startup, the server probes OpenGrok and exposes only working tools:
 
-- `list_projects`, enabled when `/projects/indexed` works or `OPENGROK_MCP_PROJECTS` is set.
-- `search_code`, enabled when full-text search works.
-- `search_symbol_definitions`, enabled when definition search works.
-- `search_symbol_references`, enabled when symbol reference search works.
-- `get_file_context` / `read_file`, enabled when `OPENGROK_MCP_WEB_BASE_URL` is configured or when `OPENGROK_MCP_PROBE_FILE` verifies file access. File reads try `/api/v1/file/content` first, then fall back to authenticated `/raw/{project}/{path}` under `OPENGROK_MCP_WEB_BASE_URL`.
+- `search_code`
+- `search_symbol_definitions`
+- `search_symbol_references`
+- `read_file`
+- `get_file_context`
+- `list_projects`
+
+File reads try `/api/v1/file/content` first, then fall back to authenticated
+`/raw/{project}/{path}` under `OPENGROK_MCP_WEB_BASE_URL`.
+
+Search and file outputs include `citation.url`. Agents should include it when
+answering about a specific class or file.
 
 ## Resources
 
@@ -103,6 +111,7 @@ Resources are exposed only when the matching capability is enabled:
 
 ## Security
 
-`opengrok-go-mcp` binds to `127.0.0.1` by default. Do not expose it externally without authentication and network controls.
+`opengrok-go-mcp` binds to `127.0.0.1` by default in HTTP mode. Do not expose it
+externally without authentication and network controls.
 
 Avoid passing secrets as CLI flags. Use environment variables for OpenGrok auth tokens.
