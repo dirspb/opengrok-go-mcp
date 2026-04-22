@@ -996,6 +996,161 @@ func TestListProjectsInvalidCursorReturnsError(t *testing.T) {
 	}
 }
 
+func TestGetFileContextFullFileUnderCapReturnsAllContent(t *testing.T) {
+	// 3 lines — well under 500-line cap
+	backend := &fakeBackend{
+		fileContent: "one\ntwo\nthree\n",
+	}
+	service := NewService(testConfig(), backend)
+
+	output, err := service.GetFileContext(context.Background(), FileContextInput{
+		Project:  "platform",
+		FilePath: "src/Engine.swift",
+	})
+	if err != nil {
+		t.Fatalf("GetFileContext returned error: %v", err)
+	}
+
+	if output.TotalLines != 3 {
+		t.Fatalf("TotalLines = %d, want 3", output.TotalLines)
+	}
+	if output.Truncated {
+		t.Fatal("Truncated = true, want false for file under cap")
+	}
+	if output.NextCursor != nil {
+		t.Fatal("NextCursor is non-nil, want nil for file under cap")
+	}
+	if output.Hint != nil {
+		t.Fatal("Hint is non-nil, want nil for file under cap")
+	}
+	if output.StartLine != 1 {
+		t.Fatalf("StartLine = %d, want 1", output.StartLine)
+	}
+	if output.EndLine != 3 {
+		t.Fatalf("EndLine = %d, want 3", output.EndLine)
+	}
+}
+
+func TestGetFileContextFullFileOverCapTruncatesAndReturnsCursor(t *testing.T) {
+	// Build a 600-line file
+	lineSlice := make([]string, 600)
+	for i := range lineSlice {
+		lineSlice[i] = fmt.Sprintf("line %d", i+1)
+	}
+	content := strings.Join(lineSlice, "\n") + "\n"
+
+	backend := &fakeBackend{fileContent: content}
+	service := NewService(testConfig(), backend)
+
+	output, err := service.GetFileContext(context.Background(), FileContextInput{
+		Project:  "platform",
+		FilePath: "src/Engine.swift",
+	})
+	if err != nil {
+		t.Fatalf("GetFileContext returned error: %v", err)
+	}
+
+	if output.TotalLines != 600 {
+		t.Fatalf("TotalLines = %d, want 600", output.TotalLines)
+	}
+	if !output.Truncated {
+		t.Fatal("Truncated = false, want true for file over cap")
+	}
+	if output.StartLine != 1 {
+		t.Fatalf("StartLine = %d, want 1", output.StartLine)
+	}
+	if output.EndLine != 500 {
+		t.Fatalf("EndLine = %d, want 500", output.EndLine)
+	}
+	if output.NextCursor == nil {
+		t.Fatal("NextCursor is nil, want cursor for truncated file")
+	}
+	if output.Hint == nil {
+		t.Fatal("Hint is nil, want hint text for truncated file")
+	}
+	if !strings.Contains(*output.Hint, "600") {
+		t.Fatalf("Hint = %q, want mention of total line count", *output.Hint)
+	}
+}
+
+func TestGetFileContextNextPageViaCursorReturnsCorrectLines(t *testing.T) {
+	lineSlice := make([]string, 600)
+	for i := range lineSlice {
+		lineSlice[i] = fmt.Sprintf("line %d", i+1)
+	}
+	content := strings.Join(lineSlice, "\n") + "\n"
+
+	backend := &fakeBackend{fileContent: content}
+	service := NewService(testConfig(), backend)
+
+	firstPage, err := service.GetFileContext(context.Background(), FileContextInput{
+		Project:  "platform",
+		FilePath: "src/Engine.swift",
+	})
+	if err != nil {
+		t.Fatalf("first GetFileContext error: %v", err)
+	}
+	if firstPage.NextCursor == nil {
+		t.Fatal("first page NextCursor is nil")
+	}
+
+	secondPage, err := service.GetFileContext(context.Background(), FileContextInput{
+		Project:  "platform",
+		FilePath: "src/Engine.swift",
+		Cursor:   firstPage.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("second GetFileContext error: %v", err)
+	}
+
+	if secondPage.StartLine != 501 {
+		t.Fatalf("StartLine = %d, want 501", secondPage.StartLine)
+	}
+	if secondPage.EndLine != 600 {
+		t.Fatalf("EndLine = %d, want 600", secondPage.EndLine)
+	}
+	if secondPage.Truncated {
+		t.Fatal("Truncated = true, want false for last page")
+	}
+	if secondPage.NextCursor != nil {
+		t.Fatal("NextCursor is non-nil, want nil for last page")
+	}
+}
+
+func TestGetFileContextCursorFromDifferentFileReturnsError(t *testing.T) {
+	backend := &fakeBackend{fileContent: "one\ntwo\n"}
+	service := NewService(testConfig(), backend)
+
+	// Get a valid cursor for a different file
+	lineSlice := make([]string, 600)
+	for i := range lineSlice {
+		lineSlice[i] = fmt.Sprintf("line %d", i+1)
+	}
+	otherContent := strings.Join(lineSlice, "\n") + "\n"
+	otherBackend := &fakeBackend{fileContent: otherContent}
+	otherService := NewService(testConfig(), otherBackend)
+	otherPage, err := otherService.GetFileContext(context.Background(), FileContextInput{
+		Project:  "platform",
+		FilePath: "src/Other.swift",
+	})
+	if err != nil || otherPage.NextCursor == nil {
+		t.Fatal("could not get cursor from other file")
+	}
+
+	// Use that cursor with a different file
+	_, err = service.GetFileContext(context.Background(), FileContextInput{
+		Project:  "platform",
+		FilePath: "src/Engine.swift",
+		Cursor:   otherPage.NextCursor,
+	})
+	if err == nil {
+		t.Fatal("GetFileContext error is nil, want INVALID_CURSOR")
+	}
+	if !IsCode(err, "INVALID_CURSOR") {
+		t.Fatalf("GetFileContext error = %v, want INVALID_CURSOR", err)
+	}
+}
+
 func testConfig() config.Config {
 	cfg := config.Default()
 	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"

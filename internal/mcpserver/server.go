@@ -184,14 +184,25 @@ func (s *Service) GetFileContext(ctx context.Context, input FileContextInput) (F
 		return FileContextOutput{}, fmt.Errorf("file context: %w", err)
 	}
 
+	if input.LineNumber > 0 {
+		return s.windowedFileContext(projects[0], content, input)
+	}
+	return s.pagedFileContext(projects[0], content, input)
+}
+
+func (s *Service) windowedFileContext(project string, content string, input FileContextInput) (FileContextOutput, error) {
 	selectedContent, selectedLine, startLine, endLine := fileContextLines(content, input)
-	fileLinks := s.links.File(projects[0], input.FilePath, selectedLine)
+	lines := fileLines(content)
+	totalLines := len(lines)
+	fileLinks := s.links.File(project, input.FilePath, selectedLine)
 	output := FileContextOutput{
-		Project:              projects[0],
+		Project:              project,
 		FilePath:             input.FilePath,
 		LineNumber:           selectedLine,
 		StartLine:            startLine,
 		EndLine:              endLine,
+		TotalLines:           totalLines,
+		Truncated:            false,
 		Content:              selectedContent,
 		DisplayURL:           fileLinks.DisplayURL,
 		RawURL:               fileLinks.RawURL,
@@ -203,7 +214,84 @@ func (s *Service) GetFileContext(ctx context.Context, input FileContextInput) (F
 		output.DisplayURL = ""
 		output.RawURL = nil
 	}
+	return output, nil
+}
 
+func (s *Service) pagedFileContext(project string, content string, input FileContextInput) (FileContextOutput, error) {
+	startLine := 1
+
+	if input.Cursor != nil && *input.Cursor != "" {
+		state, err := cursor.DecodeFile(*input.Cursor)
+		if err != nil {
+			return FileContextOutput{}, invalidCursorError()
+		}
+		if state.Project != project || state.FilePath != input.FilePath {
+			return FileContextOutput{}, invalidCursorError()
+		}
+		startLine = state.StartLine
+	}
+
+	lines := fileLines(content)
+	totalLines := len(lines)
+
+	if startLine < 1 {
+		startLine = 1
+	}
+	if startLine > totalLines {
+		startLine = totalLines
+	}
+
+	endLine := min(startLine+filePageSize-1, totalLines)
+
+	var selectedContent string
+	if startLine == 1 && endLine == totalLines {
+		selectedContent = content
+	} else {
+		selectedContent = strings.Join(lines[startLine-1:endLine], "\n")
+	}
+
+	truncated := endLine < totalLines
+
+	fileLinks := s.links.File(project, input.FilePath, 0)
+
+	var nextCursor *string
+	var hint *string
+	if truncated {
+		encoded, err := cursor.EncodeFile(cursor.FileState{
+			Project:   project,
+			FilePath:  input.FilePath,
+			StartLine: endLine + 1,
+			PageSize:  filePageSize,
+		})
+		if err != nil {
+			return FileContextOutput{}, fmt.Errorf("file cursor: %w", err)
+		}
+		nextCursor = &encoded
+		hintText := fmt.Sprintf("File has %d lines, showing %d–%d. Pass next_cursor to read the next section.", totalLines, startLine, endLine)
+		hint = &hintText
+	}
+
+	output := FileContextOutput{
+		Project:              project,
+		FilePath:             input.FilePath,
+		LineNumber:           0,
+		StartLine:            startLine,
+		EndLine:              endLine,
+		TotalLines:           totalLines,
+		Truncated:            truncated,
+		Content:              selectedContent,
+		DisplayURL:           fileLinks.DisplayURL,
+		RawURL:               fileLinks.RawURL,
+		Citation:             citation(displayTitle(input.FilePath, 0), fileLinks.DisplayURL, 0),
+		NextCursor:           nextCursor,
+		Hint:                 hint,
+		AnnotationsAvailable: input.IncludeAnnotations,
+		ResourceURI:          fileLinks.ResourceURI,
+	}
+	if !s.includeLinks(input.IncludeLinks) {
+		output.DisplayURL = ""
+		output.RawURL = nil
+	}
 	return output, nil
 }
 
