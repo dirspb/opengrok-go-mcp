@@ -61,3 +61,34 @@ func (s State) Validate(expected State) error {
 
 	return nil
 }
+
+type ProjectsState struct {
+	Offset   int `json:"offset"`
+	PageSize int `json:"page_size"`
+}
+
+func EncodeProjects(state ProjectsState) (string, error) {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return "", fmt.Errorf("marshal projects cursor state: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func DecodeProjects(value string) (ProjectsState, error) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return ProjectsState{}, fmt.Errorf("decode projects cursor base64: %w", err)
+	}
+	var state ProjectsState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return ProjectsState{}, fmt.Errorf("unmarshal projects cursor state: %w", err)
+	}
+	if state.Offset < 0 {
+		return ProjectsState{}, fmt.Errorf("invalid cursor offset %d: must be >= 0", state.Offset)
+	}
+	if state.PageSize < 1 {
+		return ProjectsState{}, fmt.Errorf("invalid cursor page size %d: must be >= 1", state.PageSize)
+	}
+	return state, nil
+}

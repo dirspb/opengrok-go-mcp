@@ -127,3 +127,57 @@ func TestDecodeRejectsPageSizeLessThanOne(t *testing.T) {
 		t.Fatal("Decode() error = nil, want error")
 	}
 }
+
+func TestEncodeDecodeProjectsState(t *testing.T) {
+	state := ProjectsState{Offset: 50, PageSize: 50}
+
+	encoded, err := EncodeProjects(state)
+	if err != nil {
+		t.Fatalf("EncodeProjects() error = %v, want nil", err)
+	}
+	if encoded == "" {
+		t.Fatal("EncodeProjects() = empty string, want non-empty")
+	}
+
+	decoded, err := DecodeProjects(encoded)
+	if err != nil {
+		t.Fatalf("DecodeProjects() error = %v, want nil", err)
+	}
+	if decoded.Offset != state.Offset {
+		t.Fatalf("Offset = %d, want %d", decoded.Offset, state.Offset)
+	}
+	if decoded.PageSize != state.PageSize {
+		t.Fatalf("PageSize = %d, want %d", decoded.PageSize, state.PageSize)
+	}
+}
+
+func TestDecodeProjectsRejectsInvalidBase64(t *testing.T) {
+	_, err := DecodeProjects("not-valid-base64!!!")
+	if err == nil {
+		t.Fatal("DecodeProjects() error = nil, want error")
+	}
+}
+
+func TestDecodeProjectsRejectsNegativeOffset(t *testing.T) {
+	state := ProjectsState{Offset: -1, PageSize: 50}
+	encoded, err := EncodeProjects(state)
+	if err != nil {
+		t.Fatalf("EncodeProjects() error = %v", err)
+	}
+	_, err = DecodeProjects(encoded)
+	if err == nil {
+		t.Fatal("DecodeProjects() error = nil, want error for negative offset")
+	}
+}
+
+func TestDecodeProjectsRejectsZeroPageSize(t *testing.T) {
+	state := ProjectsState{Offset: 0, PageSize: 0}
+	encoded, err := EncodeProjects(state)
+	if err != nil {
+		t.Fatalf("EncodeProjects() error = %v", err)
+	}
+	_, err = DecodeProjects(encoded)
+	if err == nil {
+		t.Fatal("DecodeProjects() error = nil, want error for zero page size")
+	}
+}
