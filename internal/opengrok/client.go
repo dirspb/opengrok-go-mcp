@@ -16,6 +16,8 @@ import (
 type Mode string
 
 const (
+	maxResponseBytes = 32 << 20 // 32 MB
+
 	ModeFullText   Mode = "full_text"
 	ModeDefinition Mode = "definition"
 	ModeReference  Mode = "reference"
@@ -227,7 +229,7 @@ func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte,
 		time.Since(start),
 	)
 
-	body, err := io.ReadAll(response.Body)
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: read response: %w", path, err)
 	}
@@ -268,7 +270,7 @@ func (c *Client) doRaw(ctx context.Context, path string) ([]byte, error) {
 		time.Since(start),
 	)
 
-	body, err := io.ReadAll(response.Body)
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if err != nil {
 		return nil, fmt.Errorf("GET %s: read response: %w", path, err)
 	}
