@@ -237,11 +237,11 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		}
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "get_file_context",
-			Description: "Read an OpenGrok file or a line window. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Omit line_number to read the full file. Prefer read_file for full-file reads. When answering the user about this file, include citation.url.",
+			Description: "Read a line window around a specific line in an OpenGrok file. Use when you have a line_number from search results and need surrounding context. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. For full-file reads use read_file instead. When answering the user about this file, include citation.url.",
 		}, readFile)
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "read_file",
-			Description: "Read full file content from OpenGrok. Use project and file_path from search results; otherwise omit project unless the user explicitly names an OpenGrok project. Do not infer project from the local repository name. Do not use WebFetch on display_url/raw_url; this tool sends configured auth and falls back to /raw. When summarizing a class or file, include citation.url in the final answer.",
+			Description: "Read full file content from OpenGrok. Use project and file_path from search results; otherwise omit project unless the user explicitly names an OpenGrok project. Do not infer project from the local repository name. Do not use WebFetch on display_url/raw_url; this tool sends configured auth and falls back to /raw. For a targeted line window use get_file_context with line_number. When summarizing a class or file, include citation.url in the final answer.",
 		}, readFile)
 		server.AddResourceTemplate(&mcp.ResourceTemplate{
 			URITemplate: "opengrok://project/{project}/files/{+path}",

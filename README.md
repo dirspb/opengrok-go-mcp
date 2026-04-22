@@ -146,3 +146,23 @@ Resources are exposed only when the matching capability is enabled:
 externally without authentication and network controls.
 
 Avoid passing secrets as CLI flags. Use environment variables for OpenGrok auth tokens.
+
+## Known Limitations
+
+- **Multi-project result attribution is heuristic.** When searching across multiple
+  projects, result paths are matched against the queried project names by prefix.
+  If OpenGrok returns a path that doesn't match any queried project, the server falls
+  back to the default project. This can misattribute hits when project names overlap
+  or when OpenGrok returns unexpected path formats.
+
+- **`list_projects` pagination is not implemented.** The `cursor` field in
+  `list_projects` input is accepted but ignored. All projects are returned in a single
+  response. This is fine for typical OpenGrok instances but will need addressing for
+  deployments with very large project counts.
+
+- **No retry or backoff on transient OpenGrok errors.** A flaky upstream will surface
+  errors directly to the agent on every failed call. Consider fronting the server with
+  a reverse proxy that handles retries if your OpenGrok instance is unstable.
+
+- **MCP Go SDK is pre-1.0.** Breaking changes may occur on SDK upgrades. The pinned
+  version is noted in `go.mod`; review release notes before upgrading.

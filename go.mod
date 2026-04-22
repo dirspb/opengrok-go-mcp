@@ -2,7 +2,7 @@ module github.com/rokasklive/opengrok-go-mcp
 
 go 1.23.0
 
-require github.com/modelcontextprotocol/go-sdk v1.2.0
+require github.com/modelcontextprotocol/go-sdk v1.2.0 // pre-1.0: review release notes before upgrading
 
 require (
 	github.com/google/jsonschema-go v0.3.0 // indirect
