@@ -234,9 +234,16 @@ func (s *Service) pagedFileContext(project string, content string, input FileCon
 	lines := fileLines(content)
 	totalLines := len(lines)
 
-	if startLine < 1 {
-		startLine = 1
+	if totalLines == 0 {
+		return FileContextOutput{
+			Project:    project,
+			FilePath:   input.FilePath,
+			TotalLines: 0,
+			Content:    "",
+			ResourceURI: s.links.File(project, input.FilePath, 0).ResourceURI,
+		}, nil
 	}
+
 	if startLine > totalLines {
 		startLine = totalLines
 	}

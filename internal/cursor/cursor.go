@@ -117,8 +117,8 @@ func DecodeFile(value string) (FileState, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return FileState{}, fmt.Errorf("unmarshal file cursor state: %w", err)
 	}
-	if state.StartLine < 0 {
-		return FileState{}, fmt.Errorf("invalid cursor start line %d: must be >= 0", state.StartLine)
+	if state.StartLine < 1 {
+		return FileState{}, fmt.Errorf("invalid cursor start line %d: must be >= 1", state.StartLine)
 	}
 	if state.PageSize < 1 {
 		return FileState{}, fmt.Errorf("invalid cursor page size %d: must be >= 1", state.PageSize)

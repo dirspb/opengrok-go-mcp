@@ -1029,6 +1029,9 @@ func TestGetFileContextFullFileUnderCapReturnsAllContent(t *testing.T) {
 	if output.EndLine != 3 {
 		t.Fatalf("EndLine = %d, want 3", output.EndLine)
 	}
+	if output.Content != "one\ntwo\nthree\n" {
+		t.Fatalf("Content = %q, want full file with trailing newline", output.Content)
+	}
 }
 
 func TestGetFileContextFullFileOverCapTruncatesAndReturnsCursor(t *testing.T) {
