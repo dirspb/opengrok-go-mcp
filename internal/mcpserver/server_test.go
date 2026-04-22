@@ -1154,6 +1154,72 @@ func TestGetFileContextCursorFromDifferentFileReturnsError(t *testing.T) {
 	}
 }
 
+func TestSearchCodeWarningFiresAboveThreshold(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 501,
+			Hits:      []opengrok.Hit{},
+		},
+	}
+	cfg := testConfig()
+	cfg.DefaultProject = "platform"
+	service := NewService(cfg, backend)
+
+	output, err := service.SearchCode(context.Background(), SearchCodeInput{Query: "Engine"})
+	if err != nil {
+		t.Fatalf("SearchCode returned error: %v", err)
+	}
+
+	if output.Warning == nil {
+		t.Fatal("Warning is nil, want non-nil for total_hits > 500")
+	}
+	if !strings.Contains(*output.Warning, "501") {
+		t.Fatalf("Warning = %q, want mention of hit count", *output.Warning)
+	}
+}
+
+func TestSearchCodeWarningSilentBelowThreshold(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 499,
+			Hits:      []opengrok.Hit{},
+		},
+	}
+	cfg := testConfig()
+	cfg.DefaultProject = "platform"
+	service := NewService(cfg, backend)
+
+	output, err := service.SearchCode(context.Background(), SearchCodeInput{Query: "Engine"})
+	if err != nil {
+		t.Fatalf("SearchCode returned error: %v", err)
+	}
+
+	if output.Warning != nil {
+		t.Fatalf("Warning = %q, want nil for total_hits <= 500", *output.Warning)
+	}
+}
+
+func TestSearchCodeWarningSilentAtExactThreshold(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 500,
+			Hits:      []opengrok.Hit{},
+		},
+	}
+	cfg := testConfig()
+	cfg.DefaultProject = "platform"
+	service := NewService(cfg, backend)
+
+	output, err := service.SearchCode(context.Background(), SearchCodeInput{Query: "Engine"})
+	if err != nil {
+		t.Fatalf("SearchCode returned error: %v", err)
+	}
+
+	if output.Warning != nil {
+		t.Fatalf("Warning = %q, want nil for total_hits exactly at threshold", *output.Warning)
+	}
+}
+
 func testConfig() config.Config {
 	cfg := config.Default()
 	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"

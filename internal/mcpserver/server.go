@@ -462,6 +462,12 @@ func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, 
 		return emptySearchOutput(req.mode, req.query), fmt.Errorf("search cursor: %w", err)
 	}
 
+	var warning *string
+	if result.TotalHits > searchWarnThreshold {
+		w := fmt.Sprintf("Query returned %d hits. Consider narrowing with path_prefix, file_type, or a more specific query.", result.TotalHits)
+		warning = &w
+	}
+
 	return SearchOutput{
 		Project:    project,
 		Mode:       req.mode,
@@ -470,6 +476,7 @@ func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, 
 		Results:    s.results(result.Hits, project, req.mode, req.symbol, s.includeLinks(req.includeLinks)),
 		PageSize:   pageSize,
 		NextCursor: nextCursor,
+		Warning:    warning,
 		Diagnostics: Diagnostics{
 			OffsetUsed:         offset,
 			OpenGrokStart:      result.Start,
