@@ -1,6 +1,6 @@
 # opengrok-go-mcp
 
-MCP server for searching and reading OpenGrok code from OpenCode.
+MCP server for searching and reading code on OpenGrok.
 
 ## OpenCode
 
