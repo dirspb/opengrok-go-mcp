@@ -26,6 +26,7 @@ const (
 type Client struct {
 	baseURL        string
 	webBaseURL     string
+	defaultProject string
 	httpClient     *http.Client
 	apiToken       string
 	basicAuthToken string
@@ -43,6 +44,12 @@ func WithAPIToken(token string) Option {
 func WithBasicAuthToken(token string) Option {
 	return func(c *Client) {
 		c.basicAuthToken = token
+	}
+}
+
+func WithDefaultProject(project string) Option {
+	return func(c *Client) {
+		c.defaultProject = project
 	}
 }
 
@@ -150,7 +157,7 @@ func (c *Client) Search(ctx context.Context, req SearchRequest) (SearchResult, e
 		return SearchResult{Hits: []Hit{}}, fmt.Errorf("search: decode response: %w", err)
 	}
 
-	return response.toResult(req.Projects), nil
+	return response.toResult(req.Projects, c.defaultProject), nil
 }
 
 func (c *Client) FileContent(ctx context.Context, project string, filePath string) (string, error) {
@@ -312,7 +319,7 @@ func modeQueryParam(mode Mode) string {
 	case ModeDefinition:
 		return "def"
 	case ModeReference:
-		return "symbol"
+		return "refs"
 	case ModePath:
 		return "path"
 	case ModeHistory:
@@ -335,7 +342,7 @@ type searchHit struct {
 	Tag        string             `json:"tag"`
 }
 
-func (r searchResponse) toResult(projects []string) SearchResult {
+func (r searchResponse) toResult(projects []string, defaultProject string) SearchResult {
 	result := SearchResult{
 		TotalHits: r.ResultCount,
 		Start:     r.StartDocument,
@@ -344,7 +351,7 @@ func (r searchResponse) toResult(projects []string) SearchResult {
 	}
 
 	for path, hits := range r.Results {
-		project, filePath := normalizePath(path, projects)
+		project, filePath := normalizePath(path, projects, defaultProject)
 		for _, hit := range hits {
 			result.Hits = append(result.Hits, Hit{
 				Project:    project,
@@ -359,7 +366,7 @@ func (r searchResponse) toResult(projects []string) SearchResult {
 	return result
 }
 
-func normalizePath(path string, projects []string) (string, string) {
+func normalizePath(path string, projects []string, defaultProject string) (string, string) {
 	cleanPath := strings.TrimPrefix(path, "/")
 	for _, project := range projects {
 		prefix := project + "/"
@@ -372,6 +379,10 @@ func normalizePath(path string, projects []string) (string, string) {
 		if slash := strings.Index(cleanPath, "/"); slash > 0 && slash < len(cleanPath)-1 {
 			return cleanPath[:slash], cleanPath[slash+1:]
 		}
+	}
+
+	if defaultProject != "" {
+		return defaultProject, cleanPath
 	}
 
 	if len(projects) > 0 {

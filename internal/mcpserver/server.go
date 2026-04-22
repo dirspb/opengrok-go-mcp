@@ -68,12 +68,12 @@ func NewService(cfg config.Config, backend Backend) *Service {
 func (s *Service) ListProjects(ctx context.Context, input ListProjectsInput) (ListProjectsOutput, error) {
 	_ = input.Cursor
 
-	projects := s.cfg.Projects
-	if len(projects) == 0 {
-		var err error
-		projects, err = s.backend.ListProjects(ctx)
-		if err != nil {
-			return ListProjectsOutput{Projects: []ProjectItem{}}, fmt.Errorf("list projects: %w", err)
+	projects, err := s.backend.ListProjects(ctx)
+	if err != nil {
+		if len(s.cfg.Projects) > 0 {
+			projects = s.cfg.Projects
+		} else {
+			projects = []string{s.cfg.DefaultProject}
 		}
 	}
 

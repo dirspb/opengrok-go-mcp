@@ -52,7 +52,7 @@ func TestRunHelpReturnsNil(t *testing.T) {
 	}
 }
 
-func TestDetectCapabilitiesFallsBackToSearchWhenProjectsForbidden(t *testing.T) {
+func TestDetectCapabilitiesFallsBackToDefaultProjectWhenAPIForbidden(t *testing.T) {
 	backend := &capabilityBackend{
 		listProjectsErr: errors.New("unauthorized"),
 		searchResults: map[opengrok.Mode]error{
@@ -64,13 +64,14 @@ func TestDetectCapabilitiesFallsBackToSearchWhenProjectsForbidden(t *testing.T) 
 	}
 
 	cfg := config.Default()
+	cfg.DefaultProject = "platform"
 	cfg.ProbeFile = "platform/src/Engine.swift"
 	caps, err := detectCapabilities(context.Background(), backend, cfg, func(string, ...any) {})
 	if err != nil {
 		t.Fatalf("detectCapabilities returned error: %v", err)
 	}
-	if caps.ListProjects {
-		t.Fatal("ListProjects capability = true, want false")
+	if !caps.ListProjects {
+		t.Fatal("ListProjects capability = false, want true (falls back to default project)")
 	}
 	if !caps.SearchCode || !caps.SearchSymbolDefinitions || !caps.SearchSymbolReferences {
 		t.Fatalf("search capabilities = %#v, want all search enabled", caps)

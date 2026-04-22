@@ -30,14 +30,45 @@ Add this to `opencode.json`:
 }
 ```
 
-For Basic auth, use only the base64 token value:
+For Basic auth use only the base64 token value, without the `Basic ` prefix. Set exactly one of
+`OPENGROK_MCP_API_TOKEN` or `OPENGROK_MCP_BASIC_AUTH_TOKEN`.
 
-```jsonc
-"OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
+## Claude Code
+
+Add to `~/.claude.json` under `mcpServers`, or run `claude mcp add`:
+
+```json
+{
+  "mcpServers": {
+    "opengrok": {
+      "command": "go",
+      "args": ["run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@latest"],
+      "env": {
+        "OPENGROK_MCP_BASE_URL": "https://grok.example.com/source/api/v1",
+        "OPENGROK_MCP_WEB_BASE_URL": "https://grok.example.com/source",
+        "OPENGROK_MCP_DEFAULT_PROJECT": "platform",
+        "OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
+      }
+    }
+  }
+}
 ```
 
-Do not include the `Basic ` prefix. Set exactly one of
-`OPENGROK_MCP_API_TOKEN` or `OPENGROK_MCP_BASIC_AUTH_TOKEN`.
+## Codex
+
+Add to `.codex` in the project root or `~/.codex/config.toml` globally:
+
+```toml
+[[mcp_servers]]
+name = "opengrok"
+command = ["go", "run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@latest"]
+
+[mcp_servers.env]
+OPENGROK_MCP_BASE_URL = "https://grok.example.com/source/api/v1"
+OPENGROK_MCP_WEB_BASE_URL = "https://grok.example.com/source"
+OPENGROK_MCP_DEFAULT_PROJECT = "platform"
+OPENGROK_MCP_BASIC_AUTH_TOKEN = "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
+```
 
 `OPENGROK_MCP_PROJECTS` is optional but recommended when `/projects/indexed` is
 not accessible. When configured, explicit project arguments must match this
@@ -67,13 +98,13 @@ Required:
 
 - `OPENGROK_MCP_BASE_URL`: OpenGrok API base URL ending in `/api/v1`.
 - `OPENGROK_MCP_WEB_BASE_URL`: OpenGrok web UI base URL, used for citations and raw file fallback.
+- `OPENGROK_MCP_DEFAULT_PROJECT`: project used when tool calls omit `project`.
 
 Common optional settings:
 
 - `OPENGROK_MCP_API_TOKEN`: sends `Authorization: Bearer <token>`.
 - `OPENGROK_MCP_BASIC_AUTH_TOKEN`: sends `Authorization: Basic <token>`.
 - `OPENGROK_MCP_PROJECTS`: comma-separated known OpenGrok projects.
-- `OPENGROK_MCP_DEFAULT_PROJECT`: project used when tool calls omit `project`.
 - `DEBUG=1`: log OpenGrok API and web requests to stderr.
 - `OPENGROK_MCP_TRANSPORT=http`: enable Streamable HTTP mode.
 - `OPENGROK_MCP_LISTEN`: HTTP listen address, default `127.0.0.1:8765`.
@@ -92,7 +123,7 @@ At startup, the server probes OpenGrok and exposes only working tools:
 - `search_symbol_definitions`
 - `search_symbol_references`
 - `read_file`
-- `get_file_context`
+- `get_file_context` (same as `read_file` with optional line window)
 - `list_projects`
 
 File reads try `/api/v1/file/content` first, then fall back to authenticated

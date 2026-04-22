@@ -243,7 +243,9 @@ func TestGetFileContextIncludeLinksFalseSuppressesBrowserLinks(t *testing.T) {
 }
 
 func TestGetFileContextReturnsProjectRequired(t *testing.T) {
-	service := NewService(testConfig(), &fakeBackend{})
+	cfg := testConfig()
+	cfg.DefaultProject = ""
+	service := NewService(cfg, &fakeBackend{})
 
 	_, err := service.GetFileContext(context.Background(), FileContextInput{
 		FilePath: "src/Engine.swift",
@@ -259,6 +261,7 @@ func TestGetFileContextReturnsProjectRequired(t *testing.T) {
 func TestGetFileContextProjectRequiredFalseStillRequiresProject(t *testing.T) {
 	cfg := testConfig()
 	cfg.ProjectRequired = false
+	cfg.DefaultProject = ""
 	service := NewService(cfg, &fakeBackend{})
 
 	_, err := service.GetFileContext(context.Background(), FileContextInput{
@@ -481,7 +484,9 @@ func TestSearchCodeUsesDefaultWhenProjectOmittedWithConfiguredProjects(t *testin
 }
 
 func TestSearchCodeReturnsProjectRequired(t *testing.T) {
-	service := NewService(testConfig(), &fakeBackend{})
+	cfg := testConfig()
+	cfg.DefaultProject = ""
+	service := NewService(cfg, &fakeBackend{})
 
 	_, err := service.SearchCode(context.Background(), SearchCodeInput{Query: "Engine"})
 	if err == nil {
@@ -508,6 +513,7 @@ func TestSearchCodeProjectRequiredFalseAllowsAllProjectSearch(t *testing.T) {
 	}
 	cfg := testConfig()
 	cfg.ProjectRequired = false
+	cfg.DefaultProject = ""
 	service := NewService(cfg, backend)
 
 	output, err := service.SearchCode(context.Background(), SearchCodeInput{
@@ -542,6 +548,7 @@ func TestSearchCodeProjectRequiredFalseCursorKeepsAllProjectSearch(t *testing.T)
 	}
 	cfg := testConfig()
 	cfg.ProjectRequired = false
+	cfg.DefaultProject = ""
 	service := NewService(cfg, backend)
 
 	firstPage, err := service.SearchCode(context.Background(), SearchCodeInput{
@@ -884,5 +891,6 @@ func connectMCPServer(t *testing.T, server *mcp.Server) (*mcp.ClientSession, fun
 func testConfig() config.Config {
 	cfg := config.Default()
 	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"
+	cfg.DefaultProject = "platform"
 	return cfg
 }

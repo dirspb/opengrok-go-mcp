@@ -244,6 +244,7 @@ func TestValidateRequiresBaseURLs(t *testing.T) {
 
 	cfg.OpenGrokAPIBaseURL = "http://localhost:8080/api"
 	cfg.OpenGrokWebBaseURL = "http://localhost:8080/source"
+	cfg.DefaultProject = "platform"
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want nil", err)
@@ -254,6 +255,7 @@ func TestValidateRejectsInvalidConfig(t *testing.T) {
 	valid := Default()
 	valid.OpenGrokAPIBaseURL = "http://localhost:8080/api"
 	valid.OpenGrokWebBaseURL = "http://localhost:8080/source"
+	valid.DefaultProject = "platform"
 
 	tests := []struct {
 		name   string
@@ -282,6 +284,12 @@ func TestValidateRejectsInvalidConfig(t *testing.T) {
 			name: "empty OpenGrokWebBaseURL",
 			mutate: func(cfg *Config) {
 				cfg.OpenGrokWebBaseURL = ""
+			},
+		},
+		{
+			name: "empty DefaultProject",
+			mutate: func(cfg *Config) {
+				cfg.DefaultProject = ""
 			},
 		},
 		{
@@ -342,6 +350,7 @@ func TestValidateAllowsSingleAuthToken(t *testing.T) {
 			cfg := Default()
 			cfg.OpenGrokAPIBaseURL = "http://localhost:8080/api"
 			cfg.OpenGrokWebBaseURL = "http://localhost:8080/source"
+			cfg.DefaultProject = "platform"
 			tt.mutate(&cfg)
 
 			if err := cfg.Validate(); err != nil {

@@ -143,13 +143,14 @@ func detectCapabilities(
 	logf func(string, ...any),
 ) (config.Capabilities, error) {
 	var caps config.Capabilities
-	if len(cfg.Projects) > 0 {
-		caps.ListProjects = true
-		logCapability(logf, "list_projects", true, "using configured projects")
-	} else if _, err := backend.ListProjects(ctx); err != nil {
-		logCapability(logf, "list_projects", false, err.Error())
+	caps.ListProjects = true
+	if _, err := backend.ListProjects(ctx); err != nil {
+		if len(cfg.Projects) > 0 {
+			logCapability(logf, "list_projects", true, "API unavailable, using configured projects")
+		} else {
+			logCapability(logf, "list_projects", true, "API unavailable, falling back to default project")
+		}
 	} else {
-		caps.ListProjects = true
 		logCapability(logf, "list_projects", true, "")
 	}
 
@@ -269,6 +270,9 @@ func logCapability(logf func(string, ...any), name string, enabled bool, reason 
 
 func opengrokOptions(cfg config.Config) []opengrok.Option {
 	options := []opengrok.Option{}
+	if cfg.DefaultProject != "" {
+		options = append(options, opengrok.WithDefaultProject(cfg.DefaultProject))
+	}
 	if cfg.OpenGrokAPIToken != "" {
 		options = append(options, opengrok.WithAPIToken(cfg.OpenGrokAPIToken))
 	}

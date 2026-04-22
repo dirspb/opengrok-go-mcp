@@ -166,6 +166,9 @@ func (c *Config) Validate() error {
 	if c.OpenGrokWebBaseURL == "" {
 		return errors.New("OpenGrok web base URL is required")
 	}
+	if c.DefaultProject == "" {
+		return errors.New("OPENGROK_MCP_DEFAULT_PROJECT is required")
+	}
 	if c.OpenGrokAPIToken != "" && c.OpenGrokBasicAuthToken != "" {
 		return errors.New("only one OpenGrok auth token may be configured")
 	}
