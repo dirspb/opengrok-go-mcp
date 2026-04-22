@@ -312,7 +312,7 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 	if cfg.Capabilities.ListProjects {
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "list_projects",
-			Description: "List indexed OpenGrok projects.",
+			Description: "List indexed OpenGrok projects. Results are paginated (50 per page); pass next_cursor to retrieve subsequent pages. total_projects is always returned so agents know the full count.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input ListProjectsInput) (*mcp.CallToolResult, ListProjectsOutput, error) {
 			output, err := service.ListProjects(ctx, input)
 			return nil, output, err
@@ -366,11 +366,11 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		}
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "get_file_context",
-			Description: "Read a line window around a specific line in an OpenGrok file. Use when you have a line_number from search results and need surrounding context. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. For full-file reads use read_file instead. When answering the user about this file, include citation.url.",
+			Description: "Read a line window around a specific line in an OpenGrok file. Requires line_number from search results. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. For full-file reads use read_file instead. When answering the user about this file, include citation.url.",
 		}, readFile)
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "read_file",
-			Description: "Read full file content from OpenGrok. Use project and file_path from search results; otherwise omit project unless the user explicitly names an OpenGrok project. Do not infer project from the local repository name. Do not use WebFetch on display_url/raw_url; this tool sends configured auth and falls back to /raw. For a targeted line window use get_file_context with line_number. When summarizing a class or file, include citation.url in the final answer.",
+			Description: "Read full file content from OpenGrok. Returns up to 500 lines per call; if truncated is true, pass next_cursor to read the next section. total_lines is always returned. Use project and file_path from search results; omit project otherwise unless the user explicitly names one. Do not use WebFetch on display_url/raw_url; this tool sends configured auth and falls back to /raw. For a targeted line window use get_file_context with line_number. When summarizing a class or file, include citation.url in the final answer.",
 		}, readFile)
 		server.AddResourceTemplate(&mcp.ResourceTemplate{
 			URITemplate: "opengrok://project/{project}/files/{+path}",

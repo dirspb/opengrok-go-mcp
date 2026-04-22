@@ -119,12 +119,12 @@ Less common:
 
 At startup, the server probes OpenGrok and exposes only working tools:
 
-- `search_code`
-- `search_symbol_definitions`
-- `search_symbol_references`
-- `read_file`
-- `get_file_context` (same as `read_file` with optional line window)
-- `list_projects`
+- `search_code` — full-text, path, history, definition, or reference search. Returns up to the configured page size per call; pass `next_cursor` for subsequent pages. `total_hits` is always present. When `total_hits > 500`, a `warning` field advises narrowing the query.
+- `search_symbol_definitions` — search for symbol definitions.
+- `search_symbol_references` — search for symbol references.
+- `read_file` — read full file content. Returns up to 500 lines per call; `truncated` and `next_cursor` indicate more content, `total_lines` is always returned.
+- `get_file_context` — read a line window around a specific `line_number` from search results.
+- `list_projects` — list indexed projects, paginated at 50 per page; `total_projects` is always returned.
 
 File reads try `/api/v1/file/content` first, then fall back to authenticated
 `/raw/{project}/{path}` under `OPENGROK_MCP_WEB_BASE_URL`.
@@ -154,11 +154,6 @@ Avoid passing secrets as CLI flags. Use environment variables for OpenGrok auth 
   If OpenGrok returns a path that doesn't match any queried project, the server falls
   back to the default project. This can misattribute hits when project names overlap
   or when OpenGrok returns unexpected path formats.
-
-- **`list_projects` pagination is not implemented.** The `cursor` field in
-  `list_projects` input is accepted but ignored. All projects are returned in a single
-  response. This is fine for typical OpenGrok instances but will need addressing for
-  deployments with very large project counts.
 
 - **No retry or backoff on transient OpenGrok errors.** A flaky upstream will surface
   errors directly to the agent on every failed call. Consider fronting the server with
