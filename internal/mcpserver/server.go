@@ -92,6 +92,9 @@ func (s *Service) ListProjects(ctx context.Context, input ListProjectsInput) (Li
 	}
 
 	total := len(allProjects)
+	if offset > total {
+		offset = total
+	}
 	end := min(offset+pageSize, total)
 	page := allProjects[offset:end]
 
