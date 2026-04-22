@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -885,6 +886,113 @@ func connectMCPServer(t *testing.T, server *mcp.Server) (*mcp.ClientSession, fun
 	return clientSession, func() {
 		clientSession.Close()
 		serverSession.Close()
+	}
+}
+
+func TestListProjectsFirstPageReturnsPageAndTotal(t *testing.T) {
+	projects := make([]string, 120)
+	for i := range projects {
+		projects[i] = fmt.Sprintf("project-%03d", i)
+	}
+	backend := &fakeBackend{projects: projects}
+	service := NewService(testConfig(), backend)
+
+	output, err := service.ListProjects(context.Background(), ListProjectsInput{})
+	if err != nil {
+		t.Fatalf("ListProjects returned error: %v", err)
+	}
+
+	if output.TotalProjects != 120 {
+		t.Fatalf("TotalProjects = %d, want 120", output.TotalProjects)
+	}
+	if len(output.Projects) != 50 {
+		t.Fatalf("projects count = %d, want 50 (first page)", len(output.Projects))
+	}
+	if output.NextCursor == nil {
+		t.Fatal("NextCursor is nil, want non-nil (more pages remain)")
+	}
+	if output.Projects[0].Project != "project-000" {
+		t.Fatalf("first project = %q, want project-000", output.Projects[0].Project)
+	}
+}
+
+func TestListProjectsSecondPageViaCursorReturnsCorrectOffset(t *testing.T) {
+	projects := make([]string, 120)
+	for i := range projects {
+		projects[i] = fmt.Sprintf("project-%03d", i)
+	}
+	backend := &fakeBackend{projects: projects}
+	service := NewService(testConfig(), backend)
+
+	firstPage, err := service.ListProjects(context.Background(), ListProjectsInput{})
+	if err != nil {
+		t.Fatalf("ListProjects first page error: %v", err)
+	}
+	if firstPage.NextCursor == nil {
+		t.Fatal("first page NextCursor is nil")
+	}
+
+	secondPage, err := service.ListProjects(context.Background(), ListProjectsInput{
+		Cursor: firstPage.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("ListProjects second page error: %v", err)
+	}
+
+	if len(secondPage.Projects) != 50 {
+		t.Fatalf("second page count = %d, want 50", len(secondPage.Projects))
+	}
+	if secondPage.Projects[0].Project != "project-050" {
+		t.Fatalf("second page first project = %q, want project-050", secondPage.Projects[0].Project)
+	}
+	if secondPage.NextCursor == nil {
+		t.Fatal("second page NextCursor is nil, want non-nil (page 3 remains)")
+	}
+}
+
+func TestListProjectsLastPageHasNoNextCursor(t *testing.T) {
+	projects := make([]string, 60)
+	for i := range projects {
+		projects[i] = fmt.Sprintf("project-%03d", i)
+	}
+	backend := &fakeBackend{projects: projects}
+	service := NewService(testConfig(), backend)
+
+	firstPage, err := service.ListProjects(context.Background(), ListProjectsInput{})
+	if err != nil {
+		t.Fatalf("first ListProjects error: %v", err)
+	}
+	if firstPage.NextCursor == nil {
+		t.Fatal("first page NextCursor is nil, expected more pages")
+	}
+
+	lastPage, err := service.ListProjects(context.Background(), ListProjectsInput{
+		Cursor: firstPage.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("last ListProjects error: %v", err)
+	}
+
+	if len(lastPage.Projects) != 10 {
+		t.Fatalf("last page count = %d, want 10", len(lastPage.Projects))
+	}
+	if lastPage.NextCursor != nil {
+		t.Fatal("last page NextCursor is non-nil, want nil (no more pages)")
+	}
+}
+
+func TestListProjectsInvalidCursorReturnsError(t *testing.T) {
+	service := NewService(testConfig(), &fakeBackend{})
+	badCursor := "not-a-valid-cursor!!!"
+
+	_, err := service.ListProjects(context.Background(), ListProjectsInput{
+		Cursor: &badCursor,
+	})
+	if err == nil {
+		t.Fatal("ListProjects error is nil, want INVALID_CURSOR")
+	}
+	if !IsCode(err, "INVALID_CURSOR") {
+		t.Fatalf("ListProjects error = %v, want INVALID_CURSOR", err)
 	}
 }
 

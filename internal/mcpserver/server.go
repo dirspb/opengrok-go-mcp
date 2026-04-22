@@ -25,6 +25,10 @@ const (
 	defaultSearchMode = string(opengrok.ModeFullText)
 	defaultBefore     = 30
 	defaultAfter      = 60
+
+	filePageSize        = 500
+	projectsPageSize    = 50
+	searchWarnThreshold = 500
 )
 
 type Backend interface {
@@ -66,19 +70,33 @@ func NewService(cfg config.Config, backend Backend) *Service {
 }
 
 func (s *Service) ListProjects(ctx context.Context, input ListProjectsInput) (ListProjectsOutput, error) {
-	_ = input.Cursor
+	offset := 0
+	pageSize := projectsPageSize
 
-	projects, err := s.backend.ListProjects(ctx)
+	if input.Cursor != nil && *input.Cursor != "" {
+		state, err := cursor.DecodeProjects(*input.Cursor)
+		if err != nil {
+			return ListProjectsOutput{}, invalidCursorError()
+		}
+		offset = state.Offset
+		pageSize = state.PageSize
+	}
+
+	allProjects, err := s.backend.ListProjects(ctx)
 	if err != nil {
 		if len(s.cfg.Projects) > 0 {
-			projects = s.cfg.Projects
+			allProjects = s.cfg.Projects
 		} else {
-			projects = []string{s.cfg.DefaultProject}
+			allProjects = []string{s.cfg.DefaultProject}
 		}
 	}
 
-	items := make([]ProjectItem, 0, len(projects))
-	for _, project := range projects {
+	total := len(allProjects)
+	end := min(offset+pageSize, total)
+	page := allProjects[offset:end]
+
+	items := make([]ProjectItem, 0, len(page))
+	for _, project := range page {
 		items = append(items, ProjectItem{
 			Project:     project,
 			Title:       project,
@@ -88,9 +106,22 @@ func (s *Service) ListProjects(ctx context.Context, input ListProjectsInput) (Li
 		})
 	}
 
+	var nextCursor *string
+	if offset+pageSize < total {
+		encoded, err := cursor.EncodeProjects(cursor.ProjectsState{
+			Offset:   offset + pageSize,
+			PageSize: pageSize,
+		})
+		if err != nil {
+			return ListProjectsOutput{}, fmt.Errorf("projects cursor: %w", err)
+		}
+		nextCursor = &encoded
+	}
+
 	return ListProjectsOutput{
-		Projects:   items,
-		NextCursor: nil,
+		Projects:      items,
+		TotalProjects: total,
+		NextCursor:    nextCursor,
 	}, nil
 }
 
