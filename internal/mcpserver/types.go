@@ -29,6 +29,7 @@ type SearchOutput struct {
 	Results     []Result    `json:"results"`
 	PageSize    int         `json:"page_size"`
 	NextCursor  *string     `json:"next_cursor"`
+	Warning     *string     `json:"warning,omitempty"`
 	Diagnostics Diagnostics `json:"diagnostics"`
 }
 
@@ -75,18 +76,20 @@ type ProjectItem struct {
 }
 
 type ListProjectsOutput struct {
-	Projects   []ProjectItem `json:"projects"`
-	NextCursor *string       `json:"next_cursor"`
+	Projects      []ProjectItem `json:"projects"`
+	TotalProjects int           `json:"total_projects"`
+	NextCursor    *string       `json:"next_cursor"`
 }
 
 type FileContextInput struct {
-	Project            string `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
-	FilePath           string `json:"file_path" jsonschema:"project-relative file path"`
-	LineNumber         int    `json:"line_number,omitempty"`
-	Before             int    `json:"before,omitempty"`
-	After              int    `json:"after,omitempty"`
-	IncludeAnnotations bool   `json:"include_annotations,omitempty"`
-	IncludeLinks       *bool  `json:"include_links,omitempty"`
+	Project            string  `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
+	FilePath           string  `json:"file_path" jsonschema:"project-relative file path"`
+	LineNumber         int     `json:"line_number,omitempty"`
+	Before             int     `json:"before,omitempty"`
+	After              int     `json:"after,omitempty"`
+	IncludeAnnotations bool    `json:"include_annotations,omitempty"`
+	IncludeLinks       *bool   `json:"include_links,omitempty"`
+	Cursor             *string `json:"cursor,omitempty"`
 }
 
 type FileContextOutput struct {
@@ -95,10 +98,14 @@ type FileContextOutput struct {
 	LineNumber           int      `json:"line_number"`
 	StartLine            int      `json:"start_line"`
 	EndLine              int      `json:"end_line"`
+	TotalLines           int      `json:"total_lines"`
+	Truncated            bool     `json:"truncated"`
 	Content              string   `json:"content"`
 	DisplayURL           string   `json:"display_url"`
 	RawURL               *string  `json:"raw_url"`
 	Citation             Citation `json:"citation"`
+	NextCursor           *string  `json:"next_cursor,omitempty"`
+	Hint                 *string  `json:"hint,omitempty"`
 	AnnotationsAvailable bool     `json:"annotations_available"`
 	ResourceURI          string   `json:"resource_uri"`
 }
