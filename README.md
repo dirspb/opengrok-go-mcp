@@ -114,6 +114,7 @@ Less common:
 - `OPENGROK_MCP_PROJECT_REQUIRED`: default `true`.
 - `OPENGROK_MCP_PROBE_FILE`: optional `project/path/to/file` probe for file-read capability.
 - `OPENGROK_MCP_LOG_LEVEL`: reserved logging level setting.
+- `OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY=true`: disable TLS certificate verification. Use only against internal OpenGrok instances with invalid or mismatched certificates (e.g. expired corporate certs). Never use against public or untrusted hosts.
 
 ## Tools
 

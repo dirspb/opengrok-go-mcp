@@ -44,6 +44,7 @@ type Config struct {
 	ReadTimeout            time.Duration
 	WriteTimeout           time.Duration
 	LogLevel               string
+	InsecureSkipTLSVerify  bool
 }
 
 // Default returns the baseline configuration.
@@ -111,6 +112,11 @@ func FromEnv() Config {
 	if value := os.Getenv("DEBUG"); value != "" {
 		if parsed, err := strconv.ParseBool(value); err == nil {
 			cfg.Debug = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY"); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			cfg.InsecureSkipTLSVerify = parsed
 		}
 	}
 

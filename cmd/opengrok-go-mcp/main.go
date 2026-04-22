@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -47,6 +48,12 @@ func run() error {
 
 	httpClient := &http.Client{
 		Timeout: cfg.ReadTimeout,
+	}
+	if cfg.InsecureSkipTLSVerify {
+		log.Printf("WARNING: TLS certificate verification is disabled (OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY). Do not use in production.")
+		httpClient.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		}
 	}
 	backend := opengrok.NewClient(
 		cfg.OpenGrokAPIBaseURL,
