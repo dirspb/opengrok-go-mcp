@@ -181,3 +181,60 @@ func TestDecodeProjectsRejectsZeroPageSize(t *testing.T) {
 		t.Fatal("DecodeProjects() error = nil, want error for zero page size")
 	}
 }
+
+func TestEncodeDecodeFileState(t *testing.T) {
+	want := FileState{
+		Project:   "platform",
+		FilePath:  "src/Engine.swift",
+		StartLine: 500,
+		PageSize:  500,
+	}
+
+	encoded, err := EncodeFile(want)
+	if err != nil {
+		t.Fatalf("EncodeFile() error = %v, want nil", err)
+	}
+
+	got, err := DecodeFile(encoded)
+	if err != nil {
+		t.Fatalf("DecodeFile() error = %v, want nil", err)
+	}
+
+	if got.Project != want.Project ||
+		got.FilePath != want.FilePath ||
+		got.StartLine != want.StartLine ||
+		got.PageSize != want.PageSize {
+		t.Fatalf("DecodeFile(EncodeFile(state)) = %#v, want %#v", got, want)
+	}
+}
+
+func TestDecodeFileRejectsInvalidBase64(t *testing.T) {
+	_, err := DecodeFile("not-valid-base64!!!")
+	if err == nil {
+		t.Fatal("DecodeFile() error = nil, want error")
+	}
+}
+
+func TestDecodeFileRejectsNegativeStartLine(t *testing.T) {
+	state := FileState{Project: "platform", FilePath: "src/Engine.swift", StartLine: -1, PageSize: 500}
+	encoded, err := EncodeFile(state)
+	if err != nil {
+		t.Fatalf("EncodeFile() error = %v", err)
+	}
+	_, err = DecodeFile(encoded)
+	if err == nil {
+		t.Fatal("DecodeFile() error = nil, want error for negative start line")
+	}
+}
+
+func TestDecodeFileRejectsZeroPageSize(t *testing.T) {
+	state := FileState{Project: "platform", FilePath: "src/Engine.swift", StartLine: 0, PageSize: 0}
+	encoded, err := EncodeFile(state)
+	if err != nil {
+		t.Fatalf("EncodeFile() error = %v", err)
+	}
+	_, err = DecodeFile(encoded)
+	if err == nil {
+		t.Fatal("DecodeFile() error = nil, want error for zero page size")
+	}
+}

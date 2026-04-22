@@ -92,3 +92,36 @@ func DecodeProjects(value string) (ProjectsState, error) {
 	}
 	return state, nil
 }
+
+type FileState struct {
+	Project   string `json:"project"`
+	FilePath  string `json:"file_path"`
+	StartLine int    `json:"start_line"`
+	PageSize  int    `json:"page_size"`
+}
+
+func EncodeFile(state FileState) (string, error) {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return "", fmt.Errorf("marshal file cursor state: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(data), nil
+}
+
+func DecodeFile(value string) (FileState, error) {
+	data, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return FileState{}, fmt.Errorf("decode file cursor base64: %w", err)
+	}
+	var state FileState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return FileState{}, fmt.Errorf("unmarshal file cursor state: %w", err)
+	}
+	if state.StartLine < 0 {
+		return FileState{}, fmt.Errorf("invalid cursor start line %d: must be >= 0", state.StartLine)
+	}
+	if state.PageSize < 1 {
+		return FileState{}, fmt.Errorf("invalid cursor page size %d: must be >= 1", state.PageSize)
+	}
+	return state, nil
+}
