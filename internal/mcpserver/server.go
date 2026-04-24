@@ -135,41 +135,44 @@ func (s *Service) SearchCode(ctx context.Context, input SearchCodeInput) (Search
 	}
 
 	return s.search(ctx, searchRequest{
-		project:      input.Project,
-		projects:     input.Projects,
-		query:        input.Query,
-		mode:         mode,
-		pathPrefix:   input.PathPrefix,
-		fileType:     input.FileType,
-		pageSize:     input.PageSize,
-		cursor:       cursorValue(input.Cursor),
-		includeLinks: input.IncludeLinks,
+		project:       input.Project,
+		projects:      input.Projects,
+		query:         input.Query,
+		mode:          mode,
+		pathPrefix:    input.PathPrefix,
+		fileType:      input.FileType,
+		pageSize:      input.PageSize,
+		cursor:        cursorValue(input.Cursor),
+		includeLinks:  input.IncludeLinks,
+		expandContext: s.shouldExpandContext(input.ExpandContext),
 	})
 }
 
 func (s *Service) SearchSymbolDefinitions(ctx context.Context, input SymbolSearchInput) (SearchOutput, error) {
 	return s.search(ctx, searchRequest{
-		project:      input.Project,
-		projects:     input.Projects,
-		query:        input.Symbol,
-		mode:         string(opengrok.ModeDefinition),
-		pageSize:     input.PageSize,
-		cursor:       cursorValue(input.Cursor),
-		includeLinks: input.IncludeLinks,
-		symbol:       input.Symbol,
+		project:       input.Project,
+		projects:      input.Projects,
+		query:         input.Symbol,
+		mode:          string(opengrok.ModeDefinition),
+		pageSize:      input.PageSize,
+		cursor:        cursorValue(input.Cursor),
+		includeLinks:  input.IncludeLinks,
+		symbol:        input.Symbol,
+		expandContext: s.shouldExpandContext(input.ExpandContext),
 	})
 }
 
 func (s *Service) SearchSymbolReferences(ctx context.Context, input SymbolSearchInput) (SearchOutput, error) {
 	return s.search(ctx, searchRequest{
-		project:      input.Project,
-		projects:     input.Projects,
-		query:        input.Symbol,
-		mode:         string(opengrok.ModeReference),
-		pageSize:     input.PageSize,
-		cursor:       cursorValue(input.Cursor),
-		includeLinks: input.IncludeLinks,
-		symbol:       input.Symbol,
+		project:       input.Project,
+		projects:      input.Projects,
+		query:         input.Symbol,
+		mode:          string(opengrok.ModeReference),
+		pageSize:      input.PageSize,
+		cursor:        cursorValue(input.Cursor),
+		includeLinks:  input.IncludeLinks,
+		symbol:        input.Symbol,
+		expandContext: s.shouldExpandContext(input.ExpandContext),
 	})
 }
 
@@ -392,16 +395,17 @@ func cursorValue(value *string) string {
 }
 
 type searchRequest struct {
-	project      string
-	projects     []string
-	query        string
-	mode         string
-	pathPrefix   string
-	fileType     string
-	pageSize     int
-	cursor       string
-	includeLinks *bool
-	symbol       string
+	project       string
+	projects      []string
+	query         string
+	mode          string
+	pathPrefix    string
+	fileType      string
+	pageSize      int
+	cursor        string
+	includeLinks  *bool
+	symbol        string
+	expandContext bool
 }
 
 func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, error) {
@@ -473,7 +477,7 @@ func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, 
 		Mode:       req.mode,
 		Query:      req.query,
 		TotalHits:  result.TotalHits,
-		Results:    s.results(result.Hits, project, req.mode, req.symbol, s.includeLinks(req.includeLinks)),
+		Results:    s.maybeExpandResults(ctx, s.results(result.Hits, project, req.mode, req.symbol, s.includeLinks(req.includeLinks)), req.expandContext),
 		PageSize:   pageSize,
 		NextCursor: nextCursor,
 		Warning:    warning,
@@ -483,6 +487,13 @@ func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, 
 			OpenGrokMaxResults: pageSize,
 		},
 	}, nil
+}
+
+func (s *Service) maybeExpandResults(ctx context.Context, results []Result, expand bool) []Result {
+	if !expand {
+		return results
+	}
+	return s.expandResultContexts(ctx, results)
 }
 
 func (s *Service) resolveSearchProjects(project string, projects []string) ([]string, error) {
@@ -577,6 +588,13 @@ func (s *Service) includeLinks(value *bool) bool {
 	}
 
 	return s.cfg.IncludeLinksDefault
+}
+
+func (s *Service) shouldExpandContext(param *bool) bool {
+	if param != nil {
+		return *param
+	}
+	return s.cfg.AutoExpandContext
 }
 
 func (s *Service) nextCursor(state cursor.State, totalHits int) (*string, error) {

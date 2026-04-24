@@ -1381,6 +1381,122 @@ func TestExpandResultContextsWindowClampsAtFileBoundary(t *testing.T) {
 	}
 }
 
+func TestSearchCodeExpandContextDefaultOn(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 1,
+			Hits: []opengrok.Hit{
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2, Snippet: "foo"},
+			},
+		},
+		fileContent: "one\ntwo\nthree\n",
+	}
+	cfg := testConfig()
+	cfg.AutoExpandContext = true
+	cfg.ContextBefore = 1
+	cfg.ContextAfter = 1
+	service := NewService(cfg, backend)
+
+	output, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query: "foo",
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if output.Results[0].Context == nil {
+		t.Fatal("Context is nil, want non-nil when AutoExpandContext=true")
+	}
+}
+
+func TestSearchCodeExpandContextFalseSkipsExpand(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 1,
+			Hits: []opengrok.Hit{
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2, Snippet: "foo"},
+			},
+		},
+		fileContent: "one\ntwo\nthree\n",
+	}
+	cfg := testConfig()
+	cfg.AutoExpandContext = true
+	service := NewService(cfg, backend)
+
+	expandContext := false
+	output, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query:         "foo",
+		ExpandContext: &expandContext,
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if output.Results[0].Context != nil {
+		t.Fatal("Context is non-nil, want nil when ExpandContext=false")
+	}
+	backend.mu.Lock()
+	callCount := backend.fileCallCount
+	backend.mu.Unlock()
+	if callCount != 0 {
+		t.Fatalf("FileContent called %d times, want 0 when ExpandContext=false", callCount)
+	}
+}
+
+func TestSearchCodeExpandContextTrueOverridesConfigFalse(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 1,
+			Hits: []opengrok.Hit{
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2, Snippet: "foo"},
+			},
+		},
+		fileContent: "one\ntwo\nthree\n",
+	}
+	cfg := testConfig()
+	cfg.AutoExpandContext = false
+	cfg.ContextBefore = 1
+	cfg.ContextAfter = 1
+	service := NewService(cfg, backend)
+
+	expandContext := true
+	output, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query:         "foo",
+		ExpandContext: &expandContext,
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if output.Results[0].Context == nil {
+		t.Fatal("Context is nil, want non-nil when ExpandContext=true overrides config false")
+	}
+}
+
+func TestSearchSymbolDefinitionsExpandContext(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 1,
+			Hits: []opengrok.Hit{
+				{Project: "platform", FilePath: "src/Bar.java", LineNumber: 1, Snippet: "class Bar"},
+			},
+		},
+		fileContent: "class Bar {\n}\n",
+	}
+	cfg := testConfig()
+	cfg.AutoExpandContext = true
+	cfg.ContextBefore = 0
+	cfg.ContextAfter = 1
+	service := NewService(cfg, backend)
+
+	output, err := service.SearchSymbolDefinitions(context.Background(), SymbolSearchInput{
+		Symbol: "Bar",
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbolDefinitions error: %v", err)
+	}
+	if output.Results[0].Context == nil {
+		t.Fatal("Context is nil, want non-nil")
+	}
+}
+
 func testConfig() config.Config {
 	cfg := config.Default()
 	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"
