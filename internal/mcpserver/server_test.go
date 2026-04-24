@@ -23,10 +23,13 @@ type fakeBackend struct {
 	searchResult   opengrok.SearchResult
 	searchErr      error
 
-	fileContent string
-	fileErr     error
-	fileProject string
-	filePath    string
+	fileContent   string
+	fileContents  map[string]string // key: "project:filePath"
+	fileErr       error
+	fileErrors    map[string]error // key: "project:filePath"
+	fileProject   string
+	filePath      string
+	fileCallCount int
 }
 
 func (b *fakeBackend) ListProjects(context.Context) ([]string, error) {
@@ -41,17 +44,27 @@ func (b *fakeBackend) Search(_ context.Context, req opengrok.SearchRequest) (ope
 	if b.searchErr != nil {
 		return opengrok.SearchResult{Hits: []opengrok.Hit{}}, b.searchErr
 	}
-
 	return b.searchResult, nil
 }
 
 func (b *fakeBackend) FileContent(_ context.Context, project string, filePath string) (string, error) {
 	b.fileProject = project
 	b.filePath = filePath
+	b.fileCallCount++
+	key := project + ":" + filePath
+	if b.fileErrors != nil {
+		if err, ok := b.fileErrors[key]; ok {
+			return "", err
+		}
+	}
 	if b.fileErr != nil {
 		return "", b.fileErr
 	}
-
+	if b.fileContents != nil {
+		if content, ok := b.fileContents[key]; ok {
+			return content, nil
+		}
+	}
 	return b.fileContent, nil
 }
 
@@ -1217,6 +1230,150 @@ func TestSearchCodeWarningSilentAtExactThreshold(t *testing.T) {
 
 	if output.Warning != nil {
 		t.Fatalf("Warning = %q, want nil for total_hits exactly at threshold", *output.Warning)
+	}
+}
+
+func TestExpandResultContextsAttachesWindow(t *testing.T) {
+	lines := []string{"L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10"}
+	backend := &fakeBackend{
+		fileContent: strings.Join(lines, "\n"),
+	}
+	cfg := testConfig()
+	cfg.ContextBefore = 5
+	cfg.ContextAfter = 10
+	service := NewService(cfg, backend)
+
+	results := []Result{
+		{Project: "platform", FilePath: "src/Foo.java", LineNumber: 6},
+	}
+	got := service.expandResultContexts(context.Background(), results)
+
+	if got[0].Context == nil {
+		t.Fatal("Context is nil, want non-nil")
+	}
+	if got[0].Context.StartLine != 1 {
+		t.Fatalf("StartLine = %d, want 1", got[0].Context.StartLine)
+	}
+	if got[0].Context.EndLine != 10 {
+		t.Fatalf("EndLine = %d, want 10", got[0].Context.EndLine)
+	}
+	want := strings.Join(lines, "\n")
+	if got[0].Context.Content != want {
+		t.Fatalf("Content = %q, want %q", got[0].Context.Content, want)
+	}
+}
+
+func TestExpandResultContextsDeduplicatesFileByProject(t *testing.T) {
+	backend := &fakeBackend{
+		fileContent: "one\ntwo\nthree\nfour\nfive\n",
+	}
+	cfg := testConfig()
+	cfg.ContextBefore = 1
+	cfg.ContextAfter = 1
+	service := NewService(cfg, backend)
+
+	results := []Result{
+		{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2},
+		{Project: "platform", FilePath: "src/Foo.java", LineNumber: 4},
+	}
+	got := service.expandResultContexts(context.Background(), results)
+
+	if backend.fileCallCount != 1 {
+		t.Fatalf("FileContent called %d times, want 1", backend.fileCallCount)
+	}
+	if got[0].Context == nil || got[1].Context == nil {
+		t.Fatal("expected both results to have Context set")
+	}
+	if got[0].Context.StartLine != 1 {
+		t.Fatalf("result[0].Context.StartLine = %d, want 1", got[0].Context.StartLine)
+	}
+	if got[1].Context.StartLine != 3 {
+		t.Fatalf("result[1].Context.StartLine = %d, want 3", got[1].Context.StartLine)
+	}
+}
+
+func TestExpandResultContextsDifferentProjectsSamePath(t *testing.T) {
+	backend := &fakeBackend{
+		fileContents: map[string]string{
+			"alpha:src/Foo.java": "alpha-one\nalpha-two\nalpha-three\n",
+			"beta:src/Foo.java":  "beta-one\nbeta-two\nbeta-three\n",
+		},
+	}
+	cfg := testConfig()
+	cfg.ContextBefore = 0
+	cfg.ContextAfter = 0
+	service := NewService(cfg, backend)
+
+	results := []Result{
+		{Project: "alpha", FilePath: "src/Foo.java", LineNumber: 2},
+		{Project: "beta", FilePath: "src/Foo.java", LineNumber: 2},
+	}
+	got := service.expandResultContexts(context.Background(), results)
+
+	if backend.fileCallCount != 2 {
+		t.Fatalf("FileContent called %d times, want 2", backend.fileCallCount)
+	}
+	if got[0].Context == nil || got[1].Context == nil {
+		t.Fatal("expected both results to have Context set")
+	}
+	if got[0].Context.Content != "alpha-two" {
+		t.Fatalf("result[0] content = %q, want alpha-two", got[0].Context.Content)
+	}
+	if got[1].Context.Content != "beta-two" {
+		t.Fatalf("result[1] content = %q, want beta-two", got[1].Context.Content)
+	}
+}
+
+func TestExpandResultContextsFetchErrorLeavesContextNil(t *testing.T) {
+	backend := &fakeBackend{
+		fileContents: map[string]string{
+			"platform:src/Good.java": "one\ntwo\nthree\n",
+		},
+		fileErrors: map[string]error{
+			"platform:src/Bad.java": errors.New("not found"),
+		},
+	}
+	cfg := testConfig()
+	cfg.ContextBefore = 1
+	cfg.ContextAfter = 1
+	service := NewService(cfg, backend)
+
+	results := []Result{
+		{Project: "platform", FilePath: "src/Bad.java", LineNumber: 1},
+		{Project: "platform", FilePath: "src/Good.java", LineNumber: 2},
+	}
+	got := service.expandResultContexts(context.Background(), results)
+
+	if got[0].Context != nil {
+		t.Fatalf("result[0].Context = %+v, want nil (fetch failed)", got[0].Context)
+	}
+	if got[1].Context == nil {
+		t.Fatal("result[1].Context is nil, want non-nil")
+	}
+}
+
+func TestExpandResultContextsWindowClampsAtFileBoundary(t *testing.T) {
+	backend := &fakeBackend{
+		fileContent: "one\ntwo\nthree\n",
+	}
+	cfg := testConfig()
+	cfg.ContextBefore = 100
+	cfg.ContextAfter = 100
+	service := NewService(cfg, backend)
+
+	results := []Result{
+		{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2},
+	}
+	got := service.expandResultContexts(context.Background(), results)
+
+	if got[0].Context == nil {
+		t.Fatal("Context is nil")
+	}
+	if got[0].Context.StartLine != 1 {
+		t.Fatalf("StartLine = %d, want 1", got[0].Context.StartLine)
+	}
+	if got[0].Context.EndLine != 3 {
+		t.Fatalf("EndLine = %d, want 3", got[0].Context.EndLine)
 	}
 }
 

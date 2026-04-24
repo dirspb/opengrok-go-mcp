@@ -691,6 +691,80 @@ func contextWindow(value int, defaultValue int) int {
 	return value
 }
 
+type fileKey struct {
+	project  string
+	filePath string
+}
+
+type fileFetchResult struct {
+	key     fileKey
+	content string
+	err     error
+}
+
+func (s *Service) expandResultContexts(ctx context.Context, results []Result) []Result {
+	if len(results) == 0 {
+		return results
+	}
+
+	// Group result indices by unique (project, file_path).
+	fileGroups := make(map[fileKey][]int)
+	for i, r := range results {
+		key := fileKey{project: r.Project, filePath: r.FilePath}
+		fileGroups[key] = append(fileGroups[key], i)
+	}
+
+	// Fetch each unique file in parallel.
+	ch := make(chan fileFetchResult, len(fileGroups))
+	for key := range fileGroups {
+		key := key
+		go func() {
+			content, err := s.backend.FileContent(ctx, key.project, key.filePath)
+			ch <- fileFetchResult{key: key, content: content, err: err}
+		}()
+	}
+
+	// Collect results; skip files that failed.
+	fileContents := make(map[fileKey]string, len(fileGroups))
+	for range fileGroups {
+		r := <-ch
+		if r.err == nil {
+			fileContents[r.key] = r.content
+		}
+	}
+
+	// Attach context windows to results.
+	for i, result := range results {
+		key := fileKey{project: result.Project, filePath: result.FilePath}
+		content, ok := fileContents[key]
+		if !ok {
+			continue
+		}
+		window := extractWindow(content, result.LineNumber, s.cfg.ContextBefore, s.cfg.ContextAfter)
+		if window.StartLine > 0 {
+			results[i].Context = &window
+		}
+	}
+
+	return results
+}
+
+func extractWindow(content string, lineNumber int, before int, after int) ResultContext {
+	lines := fileLines(content)
+	totalLines := len(lines)
+	if totalLines == 0 || lineNumber <= 0 {
+		return ResultContext{}
+	}
+	selectedLine := min(lineNumber, totalLines)
+	startLine := max(1, selectedLine-before)
+	endLine := min(totalLines, selectedLine+after)
+	return ResultContext{
+		Content:   strings.Join(lines[startLine-1:endLine], "\n"),
+		StartLine: startLine,
+		EndLine:   endLine,
+	}
+}
+
 func fileLines(content string) []string {
 	if content == "" {
 		return []string{}
