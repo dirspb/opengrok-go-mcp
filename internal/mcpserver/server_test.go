@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -30,6 +31,7 @@ type fakeBackend struct {
 	fileProject   string
 	filePath      string
 	fileCallCount int
+	mu            sync.Mutex
 }
 
 func (b *fakeBackend) ListProjects(context.Context) ([]string, error) {
@@ -48,9 +50,11 @@ func (b *fakeBackend) Search(_ context.Context, req opengrok.SearchRequest) (ope
 }
 
 func (b *fakeBackend) FileContent(_ context.Context, project string, filePath string) (string, error) {
+	b.mu.Lock()
 	b.fileProject = project
 	b.filePath = filePath
 	b.fileCallCount++
+	b.mu.Unlock()
 	key := project + ":" + filePath
 	if b.fileErrors != nil {
 		if err, ok := b.fileErrors[key]; ok {

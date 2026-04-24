@@ -717,7 +717,6 @@ func (s *Service) expandResultContexts(ctx context.Context, results []Result) []
 	// Fetch each unique file in parallel.
 	ch := make(chan fileFetchResult, len(fileGroups))
 	for key := range fileGroups {
-		key := key
 		go func() {
 			content, err := s.backend.FileContent(ctx, key.project, key.filePath)
 			ch <- fileFetchResult{key: key, content: content, err: err}
