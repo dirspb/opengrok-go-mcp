@@ -10,6 +10,7 @@ type SearchCodeInput struct {
 	PageSize     int      `json:"page_size"`
 	Cursor       *string  `json:"cursor,omitempty"`
 	IncludeLinks *bool    `json:"include_links,omitempty"`
+	ExpandContext *bool   `json:"expand_context,omitempty"`
 }
 
 type SymbolSearchInput struct {
@@ -19,6 +20,7 @@ type SymbolSearchInput struct {
 	PageSize     int      `json:"page_size"`
 	Cursor       *string  `json:"cursor,omitempty"`
 	IncludeLinks *bool    `json:"include_links,omitempty"`
+	ExpandContext *bool   `json:"expand_context,omitempty"`
 }
 
 type SearchOutput struct {
@@ -54,6 +56,7 @@ type Result struct {
 	Citation     Citation       `json:"citation"`
 	ResourceURI  string         `json:"resource_uri"`
 	Score        *float64       `json:"score"`
+	Context      *ResultContext `json:"context,omitempty"`
 	Metadata     map[string]any `json:"metadata"`
 }
 
@@ -61,6 +64,12 @@ type Citation struct {
 	Title string `json:"title"`
 	URL   string `json:"url"`
 	Line  int    `json:"line,omitempty"`
+}
+
+type ResultContext struct {
+	Content   string `json:"content"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
 }
 
 type ListProjectsInput struct {
