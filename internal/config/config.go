@@ -45,6 +45,9 @@ type Config struct {
 	WriteTimeout           time.Duration
 	LogLevel               string
 	InsecureSkipTLSVerify  bool
+	AutoExpandContext      bool
+	ContextBefore          int
+	ContextAfter           int
 }
 
 // Default returns the baseline configuration.
@@ -67,6 +70,9 @@ func Default() Config {
 		ReadTimeout:         10 * time.Second,
 		WriteTimeout:        10 * time.Second,
 		LogLevel:            "info",
+		AutoExpandContext:   true,
+		ContextBefore:       5,
+		ContextAfter:        10,
 	}
 }
 
@@ -117,6 +123,21 @@ func FromEnv() Config {
 	if value := os.Getenv("OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY"); value != "" {
 		if parsed, err := strconv.ParseBool(value); err == nil {
 			cfg.InsecureSkipTLSVerify = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_AUTO_EXPAND_CONTEXT"); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			cfg.AutoExpandContext = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_CONTEXT_BEFORE"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
+			cfg.ContextBefore = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_CONTEXT_AFTER"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
+			cfg.ContextAfter = parsed
 		}
 	}
 

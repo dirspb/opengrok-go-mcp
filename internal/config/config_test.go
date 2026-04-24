@@ -359,3 +359,36 @@ func TestValidateAllowsSingleAuthToken(t *testing.T) {
 		})
 	}
 }
+
+func TestDefaultAutoExpandContext(t *testing.T) {
+	cfg := Default()
+	if !cfg.AutoExpandContext {
+		t.Fatal("AutoExpandContext default = false, want true")
+	}
+	if cfg.ContextBefore != 5 {
+		t.Fatalf("ContextBefore default = %d, want 5", cfg.ContextBefore)
+	}
+	if cfg.ContextAfter != 10 {
+		t.Fatalf("ContextAfter default = %d, want 10", cfg.ContextAfter)
+	}
+}
+
+func TestFromEnvAutoExpandContextFalse(t *testing.T) {
+	t.Setenv("OPENGROK_MCP_AUTO_EXPAND_CONTEXT", "false")
+	cfg := FromEnv()
+	if cfg.AutoExpandContext {
+		t.Fatal("AutoExpandContext = true, want false when env var is false")
+	}
+}
+
+func TestFromEnvContextWindow(t *testing.T) {
+	t.Setenv("OPENGROK_MCP_CONTEXT_BEFORE", "3")
+	t.Setenv("OPENGROK_MCP_CONTEXT_AFTER", "7")
+	cfg := FromEnv()
+	if cfg.ContextBefore != 3 {
+		t.Fatalf("ContextBefore = %d, want 3", cfg.ContextBefore)
+	}
+	if cfg.ContextAfter != 7 {
+		t.Fatalf("ContextAfter = %d, want 7", cfg.ContextAfter)
+	}
+}
