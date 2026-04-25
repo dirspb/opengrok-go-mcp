@@ -1497,6 +1497,46 @@ func TestSearchSymbolDefinitionsExpandContext(t *testing.T) {
 	}
 }
 
+func TestNewMCPServerRegistersListSymbolsWhenEnabled(t *testing.T) {
+	cfg := testConfig()
+	cfg.Capabilities = config.Capabilities{ListSymbols: true}
+	server := NewMCPServer(cfg, &fakeBackend{}, "test")
+	clientSession, cleanup := connectMCPServer(t, server)
+	defer cleanup()
+
+	tools, err := clientSession.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools returned error: %v", err)
+	}
+
+	names := make([]string, 0, len(tools.Tools))
+	for _, tool := range tools.Tools {
+		names = append(names, tool.Name)
+	}
+	if !slices.Contains(names, "list_symbols") {
+		t.Fatalf("tools = %#v, want list_symbols included", names)
+	}
+}
+
+func TestNewMCPServerDoesNotRegisterListSymbolsWhenDisabled(t *testing.T) {
+	cfg := testConfig()
+	cfg.Capabilities = config.Capabilities{ListSymbols: false}
+	server := NewMCPServer(cfg, &fakeBackend{}, "test")
+	clientSession, cleanup := connectMCPServer(t, server)
+	defer cleanup()
+
+	tools, err := clientSession.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools returned error: %v", err)
+	}
+
+	for _, tool := range tools.Tools {
+		if tool.Name == "list_symbols" {
+			t.Fatal("list_symbols tool registered, want absent when disabled")
+		}
+	}
+}
+
 func TestListSymbolsFiltersHitsByKind(t *testing.T) {
 	backend := &fakeBackend{
 		searchResult: opengrok.SearchResult{

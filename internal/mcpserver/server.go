@@ -505,6 +505,16 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		}, service.fileResource)
 	}
 
+	if cfg.Capabilities.ListSymbols {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "list_symbols",
+			Description: "List symbol definitions in OpenGrok, optionally filtered by ctags kind (class, interface, function, method, etc.) and scoped to a path. Use this for structural, architect-oriented queries: \"what classes exist in this package?\", \"find all interfaces under src/api/\". Combine path_prefix and kind for precise structural inventory. For broad sweeps across a large codebase, set include_snippets=false to reduce token cost — the warning field will tell you if the result set is large and how many additional calls full enumeration would require. Results are lean — use read_file or get_file_context to drill into a specific symbol. Omit project unless the user explicitly names one.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input ListSymbolsInput) (*mcp.CallToolResult, ListSymbolsOutput, error) {
+			output, err := service.ListSymbols(ctx, input)
+			return nil, output, err
+		})
+	}
+
 	return server
 }
 
