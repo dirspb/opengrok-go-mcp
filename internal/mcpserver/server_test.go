@@ -768,8 +768,8 @@ func TestSearchSymbolDefinitionsUsesDefinitionModeAndSetsSymbolKind(t *testing.T
 	if gotReq.Query != "Engine" {
 		t.Fatalf("query = %q, want Engine", gotReq.Query)
 	}
-	if output.Results[0].Kind != "definition" {
-		t.Fatalf("kind = %q, want definition", output.Results[0].Kind)
+	if output.Results[0].Kind != "" {
+		t.Fatalf("kind = %q, want empty string (no ctags tag on this hit)", output.Results[0].Kind)
 	}
 	if output.Results[0].Symbol == nil || *output.Results[0].Symbol != "Engine" {
 		t.Fatalf("symbol = %#v, want Engine", output.Results[0].Symbol)
@@ -1494,6 +1494,36 @@ func TestSearchSymbolDefinitionsExpandContext(t *testing.T) {
 	}
 	if output.Results[0].Context == nil {
 		t.Fatal("Context is nil, want non-nil")
+	}
+}
+
+func TestSearchCodeResultKindComesFromHitTag(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 2,
+			Hits: []opengrok.Hit{
+				{Project: "platform", FilePath: "src/Engine.swift", LineNumber: 1, Snippet: "class Engine {}", Tag: "class"},
+				{Project: "platform", FilePath: "src/run.swift", LineNumber: 5, Snippet: "func run() {}", Tag: ""},
+			},
+		},
+	}
+	cfg := testConfig()
+	cfg.DefaultProject = "platform"
+	service := NewService(cfg, backend)
+
+	output, err := service.SearchCode(context.Background(), SearchCodeInput{Query: "Engine"})
+	if err != nil {
+		t.Fatalf("SearchCode returned error: %v", err)
+	}
+
+	if len(output.Results) != 2 {
+		t.Fatalf("results length = %d, want 2", len(output.Results))
+	}
+	if output.Results[0].Kind != "class" {
+		t.Fatalf("Results[0].Kind = %q, want %q", output.Results[0].Kind, "class")
+	}
+	if output.Results[1].Kind != "" {
+		t.Fatalf("Results[1].Kind = %q, want empty string for hit with no tag", output.Results[1].Kind)
 	}
 }
 

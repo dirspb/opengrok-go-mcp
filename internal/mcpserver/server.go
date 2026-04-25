@@ -637,7 +637,7 @@ func (s *Service) results(
 			FilePath:     hit.FilePath,
 			LineNumber:   hit.LineNumber,
 			ColumnNumber: nil,
-			Kind:         mode,
+			Kind:         hit.Tag,
 			Symbol:       resultSymbol,
 			Snippet:      hit.Snippet,
 			DisplayTitle: displayTitle(hit.FilePath, hit.LineNumber),
