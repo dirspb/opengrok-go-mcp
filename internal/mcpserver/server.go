@@ -26,9 +26,10 @@ const (
 	defaultBefore     = 30
 	defaultAfter      = 60
 
-	filePageSize        = 500
-	projectsPageSize    = 50
-	searchWarnThreshold = 500
+	filePageSize              = 500
+	projectsPageSize          = 50
+	searchWarnThreshold       = 500
+	listSymbolsWarnThreshold  = 100
 )
 
 type Backend interface {
@@ -174,6 +175,126 @@ func (s *Service) SearchSymbolReferences(ctx context.Context, input SymbolSearch
 		symbol:        input.Symbol,
 		expandContext: s.shouldExpandContext(input.ExpandContext),
 	})
+}
+
+func (s *Service) ListSymbols(ctx context.Context, input ListSymbolsInput) (ListSymbolsOutput, error) {
+	projects, err := s.resolveSearchProjects(input.Project, input.Projects)
+	if err != nil {
+		return ListSymbolsOutput{Symbols: []SymbolItem{}}, err
+	}
+	project := firstProject(projects)
+
+	pageSize := s.pageSize(input.PageSize)
+	offset := 0
+
+	query := input.Symbol
+	if query == "" {
+		query = "*"
+	}
+
+	if input.Cursor != nil && *input.Cursor != "" {
+		state, err := cursor.Decode(*input.Cursor)
+		if err != nil {
+			return ListSymbolsOutput{Symbols: []SymbolItem{}}, invalidCursorError()
+		}
+		expected := cursor.State{
+			Project:    project,
+			Projects:   projects,
+			Query:      query,
+			Mode:       string(opengrok.ModeDefinition),
+			PathPrefix: input.PathPrefix,
+			FileType:   input.FileType,
+		}
+		if err := state.Validate(expected); err != nil {
+			return ListSymbolsOutput{Symbols: []SymbolItem{}}, invalidCursorError()
+		}
+		offset = state.Offset
+		pageSize = s.pageSize(state.PageSize)
+	}
+
+	result, err := s.backend.Search(ctx, opengrok.SearchRequest{
+		Projects:   projects,
+		Query:      query,
+		Mode:       opengrok.ModeDefinition,
+		PathPrefix: input.PathPrefix,
+		FileType:   input.FileType,
+		Limit:      pageSize,
+		Offset:     offset,
+	})
+	if err != nil {
+		return ListSymbolsOutput{Symbols: []SymbolItem{}}, fmt.Errorf("list symbols: %w", err)
+	}
+
+	hits := result.Hits
+	if input.Kind != "" {
+		filtered := make([]opengrok.Hit, 0, len(hits))
+		for _, h := range hits {
+			if h.Tag == input.Kind {
+				filtered = append(filtered, h)
+			}
+		}
+		hits = filtered
+	}
+
+	includeSnippets := input.IncludeSnippets == nil || *input.IncludeSnippets
+	includeLinks := s.includeLinks(input.IncludeLinks)
+
+	symbols := make([]SymbolItem, 0, len(hits))
+	for _, h := range hits {
+		hitProject := h.Project
+		if hitProject == "" {
+			hitProject = project
+		}
+		fileLinks := s.links.File(hitProject, h.FilePath, h.LineNumber)
+
+		item := SymbolItem{
+			Project:     hitProject,
+			FilePath:    h.FilePath,
+			Kind:        h.Tag,
+			LineNumber:  h.LineNumber,
+			ResourceURI: fileLinks.ResourceURI,
+		}
+		if includeSnippets {
+			snippet := h.Snippet
+			item.Snippet = &snippet
+		}
+		if includeLinks {
+			item.DisplayURL = fileLinks.DisplayURL
+		}
+		symbols = append(symbols, item)
+	}
+
+	nextCursor, err := s.nextCursor(cursor.State{
+		Project:    project,
+		Projects:   projects,
+		Query:      query,
+		Mode:       string(opengrok.ModeDefinition),
+		Offset:     offset + pageSize,
+		PageSize:   pageSize,
+		PathPrefix: input.PathPrefix,
+		FileType:   input.FileType,
+	}, result.TotalHits)
+	if err != nil {
+		return ListSymbolsOutput{Symbols: []SymbolItem{}}, fmt.Errorf("list symbols cursor: %w", err)
+	}
+
+	var warning *string
+	if result.TotalHits > listSymbolsWarnThreshold {
+		morePages := (result.TotalHits - 1) / pageSize
+		w := fmt.Sprintf(
+			"Query matched %d definitions. At page_size %d, full enumeration would require ~%d more calls. Provide path_prefix or kind to narrow.",
+			result.TotalHits, pageSize, morePages,
+		)
+		warning = &w
+	}
+
+	return ListSymbolsOutput{
+		Symbols:    symbols,
+		TotalHits:  result.TotalHits,
+		PageSize:   pageSize,
+		NextCursor: nextCursor,
+		Warning:    warning,
+	}, nil
 }
 
 func (s *Service) GetFileContext(ctx context.Context, input FileContextInput) (FileContextOutput, error) {
