@@ -118,3 +118,34 @@ type FileContextOutput struct {
 	AnnotationsAvailable bool     `json:"annotations_available"`
 	ResourceURI          string   `json:"resource_uri"`
 }
+
+type ListSymbolsInput struct {
+	Project         string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
+	Projects        []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
+	PathPrefix      string   `json:"path_prefix,omitempty"`
+	Kind            string   `json:"kind,omitempty"`
+	Symbol          string   `json:"symbol,omitempty"`
+	FileType        string   `json:"file_type,omitempty"`
+	PageSize        int      `json:"page_size,omitempty"`
+	IncludeLinks    *bool    `json:"include_links,omitempty"`
+	IncludeSnippets *bool    `json:"include_snippets,omitempty"`
+	Cursor          *string  `json:"cursor,omitempty"`
+}
+
+type ListSymbolsOutput struct {
+	Symbols    []SymbolItem `json:"symbols"`
+	TotalHits  int          `json:"total_hits"`
+	PageSize   int          `json:"page_size"`
+	NextCursor *string      `json:"next_cursor"`
+	Warning    *string      `json:"warning,omitempty"`
+}
+
+type SymbolItem struct {
+	Project     string  `json:"project"`
+	FilePath    string  `json:"file_path"`
+	Kind        string  `json:"kind"`
+	LineNumber  int     `json:"line_number"`
+	Snippet     *string `json:"snippet"`
+	ResourceURI string  `json:"resource_uri"`
+	DisplayURL  string  `json:"display_url,omitempty"`
+}
