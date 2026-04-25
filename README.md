@@ -123,9 +123,10 @@ Less common:
 
 At startup, the server probes OpenGrok and exposes only working tools:
 
-- `search_code` — full-text, path, history, definition, or reference search. Returns up to the configured page size per call; pass `next_cursor` for subsequent pages. `total_hits` is always present. When `total_hits > 500`, a `warning` field advises narrowing the query. Accepts `expand_context` (bool, default `true`) to auto-fetch surrounding lines for each result.
+- `search_code` — full-text, path, history, definition, or reference search. Returns up to the configured page size per call; pass `next_cursor` for subsequent pages. `total_hits` is always present. When `total_hits > 500`, a `warning` field advises narrowing the query. Accepts `expand_context` (bool, default `true`) to auto-fetch surrounding lines for each result. Each result includes a `kind` field containing the ctags kind (`class`, `function`, `method`, `interface`, etc.) when OpenGrok returns it.
 - `search_symbol_definitions` — search for symbol definitions. Accepts `expand_context` (bool, default `true`) to auto-fetch surrounding lines for each result.
 - `search_symbol_references` — search for symbol references. Accepts `expand_context` (bool, default `true`) to auto-fetch surrounding lines for each result.
+- `list_symbols` — list symbol definitions filtered by ctags kind (`class`, `interface`, `function`, `method`, etc.) and optionally scoped to a path prefix. Designed for architect-oriented structural queries: "what classes exist in this package?", "find all interfaces under `src/api/`". Returns lean `SymbolItem` results; use `read_file` or `get_file_context` to drill in. Set `include_snippets=false` for broad sweeps to reduce token cost. When `total_hits > 100`, a `warning` field includes a remaining-call estimate. Enabled automatically when `search_symbol_definitions` is available.
 - `read_file` — read full file content. Returns up to 500 lines per call; `truncated` and `next_cursor` indicate more content, `total_lines` is always returned.
 - `get_file_context` — read a line window around a specific `line_number` from search results.
 - `list_projects` — list indexed projects, paginated at 50 per page; `total_projects` is always returned.

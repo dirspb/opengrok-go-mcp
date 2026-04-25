@@ -190,6 +190,10 @@ func detectCapabilities(
 		"search_symbol_references",
 	)
 	caps.GetFileContext = probeFileCapability(ctx, backend, cfg, logf)
+	caps.ListSymbols = caps.SearchSymbolDefinitions
+	if caps.ListSymbols {
+		logCapability(logf, "list_symbols", true, "enabled via search_symbol_definitions")
+	}
 
 	if !caps.SearchCode && !caps.SearchSymbolDefinitions && !caps.SearchSymbolReferences {
 		return caps, errors.New("check OpenGrok access: no search capabilities are available")
