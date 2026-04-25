@@ -20,7 +20,8 @@ type Capabilities struct {
 	SearchCode              bool
 	SearchSymbolDefinitions bool
 	SearchSymbolReferences  bool
-	GetFileContext          bool
+	GetFileContext           bool
+	ListSymbols             bool
 }
 
 // Config contains runtime settings for the OpenGrok MCP server.
