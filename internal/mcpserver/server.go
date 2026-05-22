@@ -432,11 +432,13 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		Name:    "opengrok-go-mcp",
 		Version: version,
 	}, nil)
+	readOnlyAnnotations := &mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	if cfg.Capabilities.ListProjects {
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "list_projects",
 			Description: "List indexed OpenGrok projects. Results are paginated (50 per page); pass next_cursor to retrieve subsequent pages. total_projects is always returned so agents know the full count.",
+			Annotations: readOnlyAnnotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input ListProjectsInput) (*mcp.CallToolResult, ListProjectsOutput, error) {
 			output, err := service.ListProjects(ctx, input)
 			return nil, output, err
@@ -460,6 +462,7 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "search_code",
 			Description: "Search reference/base code in OpenGrok. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use mode full_text, path, history, definition, or reference. For file-name searches use mode=path. Use returned file_path/project with read_file instead of fetching display_url/raw_url yourself. When answering about a specific file or class, include the selected result's citation.url.",
+			Annotations: readOnlyAnnotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input SearchCodeInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.SearchCode(ctx, input)
 			return nil, output, err
@@ -469,6 +472,7 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "search_symbol_definitions",
 			Description: "Search symbol definitions in reference/base OpenGrok code. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use returned file_path/project with read_file to read the matched file; do not use WebFetch for display_url/raw_url because browser URLs may require auth. When answering about a class/interface, include citation.url for the definition.",
+			Annotations: readOnlyAnnotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.SearchSymbolDefinitions(ctx, input)
 			return nil, output, err
@@ -478,6 +482,7 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "search_symbol_references",
 			Description: "Search symbol references in reference/base OpenGrok code. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use returned file_path/project with read_file to read the matched file; avoid calling this for broad symbols unless you need many references. If discussing a specific reference, include citation.url.",
+			Annotations: readOnlyAnnotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.SearchSymbolReferences(ctx, input)
 			return nil, output, err
@@ -491,10 +496,12 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "get_file_context",
 			Description: "Read a line window around a specific line in an OpenGrok file. Requires line_number from search results. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. For full-file reads use read_file instead. When answering the user about this file, include citation.url.",
+			Annotations: readOnlyAnnotations,
 		}, readFile)
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "read_file",
 			Description: "Read full file content from OpenGrok. Returns up to 500 lines per call; if truncated is true, pass next_cursor to read the next section. total_lines is always returned. Use project and file_path from search results; omit project otherwise unless the user explicitly names one. Do not use WebFetch on display_url/raw_url; this tool sends configured auth and falls back to /raw. For a targeted line window use get_file_context with line_number. When summarizing a class or file, include citation.url in the final answer.",
+			Annotations: readOnlyAnnotations,
 		}, readFile)
 		server.AddResourceTemplate(&mcp.ResourceTemplate{
 			URITemplate: "opengrok://project/{project}/files/{+path}",
@@ -509,6 +516,7 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "list_symbols",
 			Description: "List symbol definitions in OpenGrok, optionally filtered by ctags kind (class, interface, function, method, etc.) and scoped to a path. Use this for structural, architect-oriented queries: \"what classes exist in this package?\", \"find all interfaces under src/api/\". Combine path_prefix and kind for precise structural inventory. For broad sweeps across a large codebase, set include_snippets=false to reduce token cost — the warning field will tell you if the result set is large and how many additional calls full enumeration would require. Results are lean — use read_file or get_file_context to drill into a specific symbol. Omit project unless the user explicitly names one.",
+			Annotations: readOnlyAnnotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input ListSymbolsInput) (*mcp.CallToolResult, ListSymbolsOutput, error) {
 			output, err := service.ListSymbols(ctx, input)
 			return nil, output, err
