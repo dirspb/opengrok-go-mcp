@@ -108,8 +108,8 @@ Common optional settings:
 - `DEBUG=1`: log OpenGrok API and web requests to stderr.
 - `OPENGROK_MCP_TRANSPORT=http`: enable Streamable HTTP mode.
 - `OPENGROK_MCP_LISTEN`: HTTP listen address, default `127.0.0.1:8765`.
-- `OPENGROK_MCP_TOOL_SURFACE`: tool registration surface, default `full`.
-  Set to `compact` to expose wrapper tools instead of fine-grained tools.
+- `OPENGROK_MCP_TOOL_SURFACE`: tool registration surface, default `compact`.
+  Set to `full` to expose fine-grained tools (e.g. `search_code`, `read_file`).
   Set to `gateway` to expose only `opengrok_discover` and `opengrok_call`
   (experimental).
 - `OPENGROK_MCP_MEMORY_ENABLED`: default `true`. Set to `false` to disable
@@ -148,9 +148,9 @@ At startup, the server probes OpenGrok and exposes only working tools:
 - `search_and_read` and `find_symbol_and_references` — compound operations that return file content; exposed only when their search capabilities and `GetFileContext` are enabled.
 - `memory_set`, `memory_get`, `memory_list`, `memory_delete`, `memory_clear` — process-scoped investigation memory; exposed only for stdio servers with the `Memory` capability enabled. These tools are not registered for HTTP transport because memory is not isolated by client session.
 
-By default, `OPENGROK_MCP_TOOL_SURFACE=full` exposes the fine-grained tools
-above. `OPENGROK_MCP_TOOL_SURFACE=compact` exposes fewer wrapper tools, only
-when their backing capabilities are enabled:
+With `OPENGROK_MCP_TOOL_SURFACE=compact` (the default), the server exposes
+fewer wrapper tools instead of the fine-grained tools listed above, only when
+their backing capabilities are enabled:
 
 - `opengrok_projects` — list indexed projects.
 - `opengrok_search` — dispatch `operation=code`, `operation=definitions`, or
@@ -200,10 +200,30 @@ Resources are exposed only when the matching capability is enabled:
 - `opengrok://project/{project}`
 - `opengrok://project/{project}/files/{+path}`
 
-## Security
+## Recommended Configuration
 
-`opengrok-go-mcp` binds to `127.0.0.1` by default in HTTP mode. Do not expose it
-externally without authentication and network controls.
+Choose the setup that matches your usage:
+
+- **Local stdio + compact mode (recommended for most users).** The default. The
+  server exposes fewer, higher-level wrapper tools (`opengrok_search`,
+  `opengrok_read`, `opengrok_symbols`, `opengrok_projects`). Clean tool list, no
+  additional config needed. Ideal for OpenCode, Claude Code, Codex, and similar
+  agents that handle dispatch internally.
+
+- **Full mode (power users).** Set `OPENGROK_MCP_TOOL_SURFACE=full` to expose
+  every fine-grained tool individually (`search_code`, `read_file`,
+  `search_symbol_definitions`, …). Useful when you want direct, per-operation
+  control over which tool an agent calls, at the cost of a longer tool list and
+  more scrolling in tool-selection UIs.
+
+- **HTTP mode (controlled local/internal setups only).** Set
+  `OPENGROK_MCP_TRANSPORT=http`. The server binds to `127.0.0.1:8765` by
+  default. Do not expose it externally without authentication and network
+  controls. Prefer local stdio when possible; HTTP is useful for agents that
+  only support remote MCP endpoints, or when running the server as a sidecar
+  process.
+
+## Security
 
 Avoid passing secrets as CLI flags. Use environment variables for OpenGrok auth tokens.
 
