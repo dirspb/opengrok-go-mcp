@@ -15,7 +15,7 @@ Add this to `opencode.json`:
       "command": [
         "go",
         "run",
-        "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@latest"
+        "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0-beta.2"
       ],
       "enabled": true,
       "environment": {
@@ -27,6 +27,9 @@ Add this to `opencode.json`:
   }
 }
 ```
+
+> **Developing on a branch?** Replace `@v0.3.0-beta.2` with the path to a local
+> clone: `["go", "run", "/path/to/opengrok-go-mcp/cmd/opengrok-go-mcp"]`.
 
 For Basic auth use only the base64 token value, without the `Basic ` prefix. Set exactly one of
 `OPENGROK_MCP_API_TOKEN` or `OPENGROK_MCP_BASIC_AUTH_TOKEN`.
@@ -43,7 +46,7 @@ Add to `~/.claude.json` under `mcpServers`, or run `claude mcp add`:
   "mcpServers": {
     "opengrok": {
       "command": "go",
-      "args": ["run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@latest"],
+      "args": ["run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0-beta.2"],
       "env": {
         "OPENGROK_MCP_BASE_URL": "https://grok.example.com/source/api/v1",
         "OPENGROK_MCP_DEFAULT_PROJECT": "platform",
@@ -61,7 +64,7 @@ Add to `.codex` in the project root or `~/.codex/config.toml` globally:
 ```toml
 [[mcp_servers]]
 name = "opengrok"
-command = ["go", "run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@latest"]
+command = ["go", "run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0-beta.2"]
 
 [mcp_servers.env]
 OPENGROK_MCP_BASE_URL = "https://grok.example.com/source/api/v1"
@@ -238,8 +241,8 @@ Avoid passing secrets as CLI flags. Use environment variables for OpenGrok auth 
 - **Retry behavior is built-in with configurable limits.** The server retries
   transient OpenGrok errors automatically with backoff.
 
-- **MCP Go SDK is pre-1.0.** Breaking changes may occur on SDK upgrades. The pinned
-  version is noted in `go.mod`; review release notes before upgrading.
+- **MCP Go SDK compatibility may change across releases.** The SDK version is pinned
+  in `go.mod`; review release notes before upgrading.
 
 ## License
 
