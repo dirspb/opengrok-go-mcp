@@ -2110,6 +2110,33 @@ func TestListFilesReportsBackendTruncation(t *testing.T) {
 	}
 }
 
+func TestListFilesPopulatesPagination(t *testing.T) {
+	backend := &fakeBackend{
+		fileEntries: []opengrok.FileEntry{
+			{Path: "src/a.go"},
+			{Path: "src/b.go"},
+			{Path: "src/c.go"},
+		},
+	}
+	cfg := testConfig()
+	cfg.DefaultProject = "platform"
+	service := NewService(cfg, backend)
+
+	output, err := service.ListFiles(context.Background(), ListFilesInput{PageSize: 2})
+	if err != nil {
+		t.Fatalf("ListFiles returned error: %v", err)
+	}
+	if output.TotalHits != 3 {
+		t.Fatalf("TotalHits = %d, want 3", output.TotalHits)
+	}
+	if output.TotalPages != 2 {
+		t.Fatalf("TotalPages = %d, want 2 (3 files / page size 2)", output.TotalPages)
+	}
+	if !output.HasMore {
+		t.Fatal("HasMore = false, want true")
+	}
+}
+
 func TestProjectOverviewReportsBackendTruncation(t *testing.T) {
 	backend := &fakeBackend{
 		fileEntries:       []opengrok.FileEntry{{Path: "src/main.go"}},

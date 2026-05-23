@@ -230,9 +230,7 @@ type ListFilesOutput struct {
 	Project    string     `json:"project"`
 	Path       string     `json:"path"`
 	Files      []FileItem `json:"files"`
-	TotalFiles int        `json:"total_files"`
-	PageSize   int        `json:"page_size"`
-	NextCursor *string    `json:"next_cursor,omitempty"`
+	Pagination            // page_size, page, total_pages, total_hits, has_more, next_cursor
 	Truncated  bool       `json:"truncated"`
 	Warning    *string    `json:"warning,omitempty"`
 }

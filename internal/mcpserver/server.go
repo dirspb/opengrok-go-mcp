@@ -339,7 +339,7 @@ func (s *Service) ListFiles(ctx context.Context, input ListFilesInput) (ListFile
 
 	var warning *string
 	if truncated {
-		value := "OpenGrok file listing was truncated at 5,000 entries; total_files and available pages are incomplete."
+		value := "OpenGrok file listing was truncated at 5,000 entries; total_hits and available pages are incomplete."
 		warning = &value
 	}
 
@@ -347,9 +347,7 @@ func (s *Service) ListFiles(ctx context.Context, input ListFilesInput) (ListFile
 		Project:    project,
 		Path:       input.Path,
 		Files:      files,
-		TotalFiles: total,
-		PageSize:   pageSize,
-		NextCursor: nextCursor,
+		Pagination: newPagination(offset, pageSize, total, nextCursor),
 		Truncated:  truncated,
 		Warning:    warning,
 	}, nil
