@@ -70,10 +70,8 @@ type SearchOutput struct {
 	Project     string                `json:"project"`
 	Mode        string                `json:"mode"`
 	Query       string                `json:"query"`
-	TotalHits   int                   `json:"total_hits"`
+	Pagination                        // embedded: page_size, page, total_pages, total_hits, has_more, next_cursor
 	Results     []Result              `json:"results"`
-	PageSize    int                   `json:"page_size"`
-	NextCursor  *string               `json:"next_cursor"`
 	Warning     *string               `json:"warning,omitempty"`
 	BestEffort  *bool                 `json:"best_effort,omitempty"`
 	Diagnostics Diagnostics           `json:"diagnostics"`

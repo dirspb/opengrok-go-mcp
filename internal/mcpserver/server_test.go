@@ -2255,6 +2255,37 @@ func TestFullSearchCoercesStringEncodedNumbers(t *testing.T) {
 	}
 }
 
+func TestSearchCodePopulatesPagination(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 45,
+			Hits: []opengrok.Hit{
+				{Project: "platform", FilePath: "src/Engine.java", LineNumber: 3, Snippet: strPtr("class Engine {}")},
+			},
+		},
+	}
+	cfg := testConfig()
+	cfg.DefaultProject = "platform"
+	service := NewService(cfg, backend)
+
+	output, err := service.SearchCode(context.Background(), SearchCodeInput{Query: "Engine"})
+	if err != nil {
+		t.Fatalf("SearchCode returned error: %v", err)
+	}
+	if output.Page != 1 {
+		t.Fatalf("Page = %d, want 1", output.Page)
+	}
+	if output.TotalPages != 3 {
+		t.Fatalf("TotalPages = %d, want 3 (45 hits / page size 20)", output.TotalPages)
+	}
+	if !output.HasMore {
+		t.Fatal("HasMore = false, want true")
+	}
+	if output.PageSize != 20 {
+		t.Fatalf("PageSize = %d, want 20", output.PageSize)
+	}
+}
+
 func testConfig() config.Config {
 	cfg := config.Default()
 	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"
