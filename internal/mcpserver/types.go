@@ -54,6 +54,18 @@ type SymbolSearchInput struct {
 	ContextBudget    string   `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
 }
 
+// Pagination is embedded anonymously into paginated outputs so its fields
+// appear at the top level of the JSON response. TotalHits is the global,
+// unfiltered count reported by OpenGrok for the query.
+type Pagination struct {
+	PageSize   int     `json:"page_size"`
+	Page       int     `json:"page"`        // 1-based index of the page in this response
+	TotalPages int     `json:"total_pages"` // ceil(total_hits / page_size); 0 when total_hits == 0
+	TotalHits  int     `json:"total_hits"`  // global, unfiltered hit count from OpenGrok
+	HasMore    bool    `json:"has_more"`    // true when more pages exist (next_cursor != nil)
+	NextCursor *string `json:"next_cursor"` // always present (null when no further pages)
+}
+
 type SearchOutput struct {
 	Project     string                `json:"project"`
 	Mode        string                `json:"mode"`
