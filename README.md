@@ -216,7 +216,7 @@ edges. For structural questions, combine two tools:
 2. Run a local AST tool (e.g. [ast-grep](https://ast-grep.github.io)) scoped to those
    paths for precise structural matching — *"what are the relationships?"*
 
-A full-text search for `extends BillingAccount` returns every textual hit (fields,
+A full-text search for `extends BaseController` returns every textual hit (fields,
 parameters, comments), not just subclasses. The two-step workflow above replaces the
 "search → truncate → grep → repeat" loop.
 

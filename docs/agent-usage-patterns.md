@@ -283,7 +283,7 @@ Two-step workflow:
    `has_more` / `total_pages` to know whether you've seen everything; when a
    `kind` filter is active, remember `total_hits` is the pre-filter count.
 2. **Match precisely with a local AST tool.** Run ast-grep (or similar) scoped to
-   the paths from step 1, e.g. `class $NAME extends BillingAccount`.
+   the paths from step 1, e.g. `class $NAME extends BaseController`.
 
 This replaces the "search → truncated output → shell grep → cross-reference →
 repeat" loop with two deterministic calls. `search_implementations` remains
