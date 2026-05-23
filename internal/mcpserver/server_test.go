@@ -2188,6 +2188,73 @@ func TestCompactMemoryAcceptsObjectPayloadAndOmittedPayload(t *testing.T) {
 	}
 }
 
+func TestFullSearchCoercesStringEncodedBooleans(t *testing.T) {
+	// Some MCP clients serialize scalar arguments as JSON strings, sending
+	// include_links:"true" instead of include_links:true. The boolean fields
+	// are *bool (schema ["null","boolean"]), so the SDK validator rejects the
+	// string before the handler runs. The server coerces string-encoded
+	// booleans for boolean-typed fields so these calls succeed.
+	cfg := testConfig()
+	cfg.ToolSurface = config.ToolSurfaceFull
+	cfg.Capabilities = config.Capabilities{SearchCode: true}
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	server := NewMCPServer(cfg, backend, "test")
+	clientSession, cleanup := connectMCPServer(t, server)
+	defer cleanup()
+
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{"links true / snippets false", map[string]any{"query": "Engine", "path_prefix": "", "file_type": "", "page_size": 10, "include_links": "true", "include_snippets": "false"}},
+		{"links false / snippets true", map[string]any{"query": "Engine", "path_prefix": "", "file_type": "", "page_size": 10, "include_links": "false", "include_snippets": "true"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+				Name:      "search_code",
+				Arguments: tc.args,
+			})
+			if err != nil {
+				t.Fatalf("CallTool returned error: %v", err)
+			}
+			if result.IsError {
+				t.Fatalf("CallTool result is an error: %+v", result.Content)
+			}
+		})
+	}
+}
+
+func TestFullSearchCoercesStringEncodedNumbers(t *testing.T) {
+	// The same clients that stringify booleans also send numeric arguments as
+	// JSON strings, e.g. page_size:"10". page_size/max_hits_per_file are int
+	// (schema "integer"), so the validator rejects a string before the handler
+	// runs. The server coerces string-encoded numbers for numeric-typed fields.
+	cfg := testConfig()
+	cfg.ToolSurface = config.ToolSurfaceFull
+	cfg.Capabilities = config.Capabilities{SearchCode: true}
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	server := NewMCPServer(cfg, backend, "test")
+	clientSession, cleanup := connectMCPServer(t, server)
+	defer cleanup()
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "search_code",
+		Arguments: map[string]any{
+			"query":             "Engine",
+			"path_prefix":       "",
+			"file_type":         "",
+			"page_size":         "10", // string-encoded integer from a flaky client
+			"max_hits_per_file": "5",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool returned error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("CallTool result is an error: %+v", result.Content)
+	}
+}
+
 func testConfig() config.Config {
 	cfg := config.Default()
 	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"

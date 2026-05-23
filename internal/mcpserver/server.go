@@ -1324,26 +1324,33 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		Version: version,
 	}, nil)
 
+	coercer := &scalarCoercer{}
+
 	switch cfg.ToolSurface {
 	case config.ToolSurfaceCompact:
-		registerCompactTools(server, service, cfg)
+		registerCompactTools(server, coercer, service, cfg)
 		registerResources(server, service, cfg)
 	case config.ToolSurfaceGateway:
-		registerGatewayTools(server, service, cfg)
+		registerGatewayTools(server, coercer, service, cfg)
 		registerResources(server, service, cfg)
 	default:
-		registerFullTools(server, service, cfg)
+		registerFullTools(server, coercer, service, cfg)
 		registerResources(server, service, cfg)
 	}
+
+	// Coerce string-encoded booleans (e.g. include_links:"true") before the SDK
+	// validates tool arguments, tolerating clients that serialize scalars as
+	// strings.
+	server.AddReceivingMiddleware(coercer.middleware())
 
 	return server
 }
 
-func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) {
+func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Service, cfg config.Config) {
 	readOnlyAnnotations := &mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	if cfg.Capabilities.ListProjects {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "list_projects",
 			Description: "List indexed OpenGrok projects. Results are paginated (50 per page); pass next_cursor to retrieve subsequent pages. total_projects is always returned so agents know the full count.",
 			Annotations: readOnlyAnnotations,
@@ -1353,7 +1360,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 		})
 	}
 	if cfg.Capabilities.SearchCode {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_code",
 			Description: "Search reference/base code in OpenGrok. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use mode full_text, path, history, definition, or reference. For file-name searches use mode=path. Use returned file_path/project with read_file instead of fetching display_url/raw_url yourself. When answering about a specific file or class, include the selected result's citation.url.",
 			Annotations: readOnlyAnnotations,
@@ -1363,7 +1370,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 		})
 	}
 	if cfg.Capabilities.SearchCode && cfg.Capabilities.GetFileContext {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_and_read",
 			Description: "Search OpenGrok and read the file content around each match in a single call. Reduces round trips for exploratory searches.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input SearchAndReadInput) (*mcp.CallToolResult, SearchAndReadOutput, error) {
@@ -1372,7 +1379,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 		})
 	}
 	if cfg.Capabilities.SearchSymbolDefinitions {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_symbol_definitions",
 			Description: "Search symbol definitions in reference/base OpenGrok code. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use returned file_path/project with read_file to read the matched file; do not use WebFetch for display_url/raw_url because browser URLs may require auth. When answering about a class/interface, include citation.url for the definition.",
 			Annotations: readOnlyAnnotations,
@@ -1382,7 +1389,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 		})
 	}
 	if cfg.Capabilities.SearchSymbolReferences {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_symbol_references",
 			Description: "Search symbol references in reference/base OpenGrok code. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use returned file_path/project with read_file to read the matched file; avoid calling this for broad symbols unless you need many references. If discussing a specific reference, include citation.url.",
 			Annotations: readOnlyAnnotations,
@@ -1392,7 +1399,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 		})
 	}
 	if cfg.Capabilities.SearchSymbolDefinitions && cfg.Capabilities.SearchSymbolReferences && cfg.Capabilities.GetFileContext {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "find_symbol_and_references",
 			Description: "Find a symbol's definition and all its references in a single call. Returns the definition with surrounding context plus a paginated reference list.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input FindSymbolAndReferencesInput) (*mcp.CallToolResult, FindSymbolAndReferencesOutput, error) {
@@ -1405,12 +1412,12 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 			output, err := service.GetFileContext(ctx, input)
 			return nil, output, err
 		}
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "get_file_context",
 			Description: "Read a line window around a specific line in an OpenGrok file. Requires line_number from search results. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. For full-file reads use read_file instead. When answering the user about this file, include citation.url.",
 			Annotations: readOnlyAnnotations,
 		}, readFile)
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "read_file",
 			Description: "Read full file content from OpenGrok. Returns up to 500 lines per call; if truncated is true, pass next_cursor to read the next section. total_lines is always returned. Use project and file_path from search results; omit project otherwise unless the user explicitly names one. Do not use WebFetch on display_url/raw_url; this tool sends configured auth and falls back to /raw. For a targeted line window use get_file_context with line_number. When summarizing a class or file, include citation.url in the final answer.",
 			Annotations: readOnlyAnnotations,
@@ -1418,7 +1425,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 	}
 
 	if cfg.Capabilities.ListSymbols {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "list_symbols",
 			Description: "List symbol definitions in OpenGrok, optionally filtered by ctags kind (class, interface, function, method, etc.) and scoped to a path. Use this for structural, architect-oriented queries: \"what classes exist in this package?\", \"find all interfaces under src/api/\". Combine path_prefix and kind for precise structural inventory. For broad sweeps across a large codebase, set include_snippets=false to reduce token cost — the warning field will tell you if the result set is large and how many additional calls full enumeration would require. Results are lean — use read_file or get_file_context to drill into a specific symbol. Omit project unless the user explicitly names one.",
 			Annotations: readOnlyAnnotations,
@@ -1429,7 +1436,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 	}
 
 	if cfg.Capabilities.ListFiles {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "list_files",
 			Description: "List files in an OpenGrok project directory. Results are paginated; use page_size to control page size and next_cursor for subsequent pages.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
@@ -1439,7 +1446,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 	}
 
 	if cfg.Capabilities.ListFiles {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "get_project_overview",
 			Description: "Get a high-level overview of an OpenGrok project: total file/directory counts and top-level directory and file entries.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input ProjectOverviewInput) (*mcp.CallToolResult, ProjectOverviewOutput, error) {
@@ -1449,7 +1456,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 	}
 
 	if cfg.Capabilities.SearchSymbolReferences {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_implementations",
 			Description: "Search candidate implementations and usages of a symbol. Delegates to symbol-reference search; results are best-effort since OpenGrok does not provide language-semantic implementation mapping.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input ImplementationSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
@@ -1457,7 +1464,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 			return nil, output, err
 		})
 
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_cross_project_references",
 			Description: "Search for references to a symbol across multiple projects, grouped by project for cross-project analysis.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input CrossProjectReferencesInput) (*mcp.CallToolResult, CrossProjectReferencesOutput, error) {
@@ -1467,7 +1474,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 	}
 
 	if memoryToolsEnabled(cfg) {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "memory_set",
 			Description: "Store a key-value pair in the server's memory bank. Values persist for the lifetime of the server process.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemorySetInput) (*mcp.CallToolResult, MemorySetOutput, error) {
@@ -1475,7 +1482,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 			return nil, output, err
 		})
 
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "memory_get",
 			Description: "Retrieve a value from the memory bank by key.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemoryGetInput) (*mcp.CallToolResult, MemoryGetOutput, error) {
@@ -1483,7 +1490,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 			return nil, output, err
 		})
 
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "memory_list",
 			Description: "List all entries in the memory bank.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemoryListInput) (*mcp.CallToolResult, MemoryListOutput, error) {
@@ -1491,7 +1498,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 			return nil, output, err
 		})
 
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "memory_delete",
 			Description: "Delete a key from the memory bank.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemoryDeleteInput) (*mcp.CallToolResult, MemoryDeleteOutput, error) {
@@ -1499,7 +1506,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 			return nil, output, err
 		})
 
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "memory_clear",
 			Description: "Clear all entries from the memory bank.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemoryClearInput) (*mcp.CallToolResult, MemoryClearOutput, error) {
@@ -1532,9 +1539,9 @@ func compactInputSchema(operationDescription string) map[string]any {
 	}
 }
 
-func registerCompactTools(server *mcp.Server, service *Service, cfg config.Config) {
+func registerCompactTools(server *mcp.Server, coercer *scalarCoercer, service *Service, cfg config.Config) {
 	if cfg.Capabilities.ListProjects {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "opengrok_projects",
 			Description: "List indexed OpenGrok projects. Results are paginated; pass next_cursor to retrieve subsequent pages.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input ListProjectsInput) (*mcp.CallToolResult, ListProjectsOutput, error) {
@@ -1544,7 +1551,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 	}
 
 	if cfg.Capabilities.SearchCode || cfg.Capabilities.SearchSymbolDefinitions || cfg.Capabilities.SearchSymbolReferences {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "opengrok_search",
 			Description: "Search OpenGrok code and symbols. operation=code searches text/path/history/definition/reference; operation=definitions finds symbol definitions; operation=references finds symbol references. Payload is the selected operation's input object.",
 			InputSchema: compactInputSchema("one of: code, definitions, references"),
@@ -1555,7 +1562,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 	}
 
 	if cfg.Capabilities.ListSymbols || cfg.Capabilities.SearchSymbolReferences {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "opengrok_symbols",
 			Description: "Work with OpenGrok symbols. operation=list lists symbols (requires list_symbols capability); operation=implementations finds candidate implementations of a symbol; operation=cross_project_references finds references across projects. Each operation payload matches the corresponding full tool input.",
 			InputSchema: compactInputSchema("one of: list, implementations, cross_project_references"),
@@ -1566,7 +1573,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 	}
 
 	if cfg.Capabilities.GetFileContext {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "opengrok_read",
 			Description: "Read OpenGrok files or line windows. operation=file and operation=context both use a file-context payload.",
 			InputSchema: compactInputSchema("one of: file, context"),
@@ -1578,7 +1585,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 
 	if cfg.Capabilities.GetFileContext &&
 		(cfg.Capabilities.SearchCode || (cfg.Capabilities.SearchSymbolDefinitions && cfg.Capabilities.SearchSymbolReferences)) {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "opengrok_compound",
 			Description: "Compound OpenGrok operations. operation=search_and_read searches and reads file content around matches; operation=find_symbol_and_references finds a symbol's definition and references. Each operation payload matches the corresponding full tool input.",
 			InputSchema: compactInputSchema("one of: search_and_read, find_symbol_and_references"),
@@ -1589,7 +1596,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 	}
 
 	if memoryToolsEnabled(cfg) {
-		mcp.AddTool(server, &mcp.Tool{
+		addTool(server, coercer, &mcp.Tool{
 			Name:        "opengrok_memory",
 			Description: "Interact with the server's process-scoped memory bank. Available only for stdio servers with memory enabled.",
 			InputSchema: compactInputSchema("one of: set, get, list, delete, clear"),
@@ -1876,10 +1883,10 @@ func memoryToolsEnabled(cfg config.Config) bool {
 	return cfg.Capabilities.Memory && cfg.Transport != config.TransportHTTP
 }
 
-func registerGatewayTools(server *mcp.Server, service *Service, cfg config.Config) {
+func registerGatewayTools(server *mcp.Server, coercer *scalarCoercer, service *Service, cfg config.Config) {
 	registry := buildGatewayRegistry(service, cfg)
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, coercer, &mcp.Tool{
 		Name:        "opengrok_discover",
 		Description: "List available gateway operations for OpenGrok. Returns the full operation manifest with names and descriptions.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, input GatewayDiscoverInput) (*mcp.CallToolResult, GatewayDiscoverOutput, error) {
@@ -1895,7 +1902,7 @@ func registerGatewayTools(server *mcp.Server, service *Service, cfg config.Confi
 		return nil, GatewayDiscoverOutput{Operations: operations}, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
+	addTool(server, coercer, &mcp.Tool{
 		Name:        "opengrok_call",
 		Description: "Call an OpenGrok gateway operation. Use opengrok_discover to list available operations and their payload schemas.",
 		InputSchema: map[string]any{
