@@ -271,6 +271,26 @@ search + read calls as the fallback.
 
 ---
 
+## 7. Structural queries (subclasses / implementers / call graphs)
+
+OpenGrok finds *definitions*, not *relationships*. Don't full-text search for
+`extends Foo` — you'll get fields, parameters, and comments, not just subclasses.
+
+Two-step workflow:
+
+1. **Scope with OpenGrok.** `list_symbols(kind="class", path_prefix=...)` or
+   `search_symbol_definitions` to locate the package(s) involved. Read
+   `has_more` / `total_pages` to know whether you've seen everything; when a
+   `kind` filter is active, remember `total_hits` is the pre-filter count.
+2. **Match precisely with a local AST tool.** Run ast-grep (or similar) scoped to
+   the paths from step 1, e.g. `class $NAME extends BillingAccount`.
+
+This replaces the "search → truncated output → shell grep → cross-reference →
+repeat" loop with two deterministic calls. `search_implementations` remains
+best-effort (textual references, not semantic implementers) for the same reason.
+
+---
+
 ## Notes for agent implementors
 
 - **Citation URLs** (`citation.url` on search and file results) point to the
