@@ -980,7 +980,6 @@ func (s *Service) ListSymbols(ctx context.Context, input ListSymbolsInput) (List
 	}
 
 	hits := result.Hits
-	var filteredTotalHits *int
 	if input.Kind != "" {
 		filtered := make([]opengrok.Hit, 0, len(hits))
 		for _, h := range hits {
@@ -988,8 +987,6 @@ func (s *Service) ListSymbols(ctx context.Context, input ListSymbolsInput) (List
 				filtered = append(filtered, h)
 			}
 		}
-		count := len(filtered)
-		filteredTotalHits = &count
 		hits = filtered
 	}
 
@@ -1043,14 +1040,23 @@ func (s *Service) ListSymbols(ctx context.Context, input ListSymbolsInput) (List
 		)
 		warning = &w
 	}
+	if input.Kind != "" && nextCursor != nil {
+		kw := fmt.Sprintf(
+			"total_hits (%d) counts all definitions before the %q kind filter; OpenGrok cannot filter by ctags kind server-side, so the global count of %q definitions across pages is unknown. This page contains %d matching %q definitions. Narrow with path_prefix to enumerate fully.",
+			result.TotalHits, input.Kind, input.Kind, len(hits), input.Kind,
+		)
+		if warning != nil {
+			combined := *warning + " " + kw
+			warning = &combined
+		} else {
+			warning = &kw
+		}
+	}
 
 	return ListSymbolsOutput{
-		Symbols:           symbols,
-		TotalHits:         result.TotalHits,
-		FilteredTotalHits: filteredTotalHits,
-		PageSize:          pageSize,
-		NextCursor:        nextCursor,
-		Warning:           warning,
+		Symbols:    symbols,
+		Pagination: newPagination(offset, pageSize, result.TotalHits, nextCursor),
+		Warning:    warning,
 	}, nil
 }
 

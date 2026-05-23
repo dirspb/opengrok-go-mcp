@@ -189,12 +189,9 @@ type ListSymbolsInput struct {
 }
 
 type ListSymbolsOutput struct {
-	Symbols           []SymbolItem `json:"symbols"`
-	TotalHits         int          `json:"total_hits"`
-	FilteredTotalHits *int         `json:"filtered_total_hits,omitempty"`
-	PageSize          int          `json:"page_size"`
-	NextCursor        *string      `json:"next_cursor"`
-	Warning           *string      `json:"warning,omitempty"`
+	Symbols    []SymbolItem `json:"symbols"`
+	Pagination              // page_size, page, total_pages, total_hits, has_more, next_cursor
+	Warning    *string      `json:"warning,omitempty"`
 }
 
 type SymbolItem struct {

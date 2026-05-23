@@ -2025,6 +2025,38 @@ func TestListSymbolsIncludeSnippetsFalseNullsSnippet(t *testing.T) {
 	}
 }
 
+func TestListSymbolsKindFilterWarnsAboutPrefilterTotal(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 200,
+			Hits: []opengrok.Hit{
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 10, Snippet: strPtr("class Foo {}"), Tag: "class"},
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 20, Snippet: strPtr("void doIt() {}"), Tag: "function"},
+			},
+		},
+	}
+	cfg := testConfig()
+	cfg.DefaultProject = "platform"
+	service := NewService(cfg, backend)
+
+	output, err := service.ListSymbols(context.Background(), ListSymbolsInput{Kind: "class"})
+	if err != nil {
+		t.Fatalf("ListSymbols returned error: %v", err)
+	}
+	if output.Warning == nil {
+		t.Fatal("Warning is nil, want kind-prefilter warning")
+	}
+	if !strings.Contains(*output.Warning, "ctags kind") {
+		t.Fatalf("Warning = %q, want it to mention the ctags-kind prefilter limitation", *output.Warning)
+	}
+	if !output.HasMore {
+		t.Fatal("HasMore = false, want true (200 hits, page size 20)")
+	}
+	if output.TotalPages != 10 {
+		t.Fatalf("TotalPages = %d, want 10", output.TotalPages)
+	}
+}
+
 func TestSearchCodeResultKindComesFromHitTag(t *testing.T) {
 	backend := &fakeBackend{
 		searchResult: opengrok.SearchResult{
