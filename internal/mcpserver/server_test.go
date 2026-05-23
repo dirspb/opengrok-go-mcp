@@ -2125,6 +2125,69 @@ func TestExpandResultContextsRecoversBackendPanic(t *testing.T) {
 	}
 }
 
+func TestCompactSearchAcceptsObjectPayload(t *testing.T) {
+	cfg := testConfig()
+	cfg.ToolSurface = config.ToolSurfaceCompact
+	cfg.Capabilities = config.Capabilities{SearchCode: true}
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	server := NewMCPServer(cfg, backend, "test")
+	clientSession, cleanup := connectMCPServer(t, server)
+	defer cleanup()
+
+	result, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "opengrok_search",
+		Arguments: map[string]any{
+			"operation": "code",
+			"payload": map[string]any{
+				"query":   "Engine",
+				"project": "platform",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool returned error: %v", err)
+	}
+	if result.IsError {
+		t.Fatalf("CallTool result is an error: %+v", result.Content)
+	}
+}
+
+func TestCompactMemoryAcceptsObjectPayloadAndOmittedPayload(t *testing.T) {
+	cfg := testConfig()
+	cfg.ToolSurface = config.ToolSurfaceCompact
+	cfg.Transport = config.TransportStdio
+	cfg.Capabilities = config.Capabilities{Memory: true}
+	server := NewMCPServer(cfg, &fakeBackend{}, "test")
+	clientSession, cleanup := connectMCPServer(t, server)
+	defer cleanup()
+
+	setResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "opengrok_memory",
+		Arguments: map[string]any{
+			"operation": "set",
+			"payload":   map[string]any{"key": "k", "value": "v"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(set) returned error: %v", err)
+	}
+	if setResult.IsError {
+		t.Fatalf("CallTool(set) result is an error: %+v", setResult.Content)
+	}
+
+	// Operations such as list take no payload; an omitted payload must validate.
+	listResult, err := clientSession.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "opengrok_memory",
+		Arguments: map[string]any{"operation": "list"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool(list) returned error: %v", err)
+	}
+	if listResult.IsError {
+		t.Fatalf("CallTool(list) result is an error: %+v", listResult.Content)
+	}
+}
+
 func testConfig() config.Config {
 	cfg := config.Default()
 	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"

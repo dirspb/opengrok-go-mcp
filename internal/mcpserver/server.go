@@ -1509,6 +1509,29 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 	}
 }
 
+// compactInputSchema returns an explicit input schema for compact wrapper
+// tools. Their nested payload field is typed as json.RawMessage; reflection-based
+// schema inference would otherwise publish it as a byte array ([]byte), so an
+// object-shaped payload fails validation before the handler runs. operation is
+// the only required field — some operations (e.g. memory list/clear) take no
+// payload.
+func compactInputSchema(operationDescription string) map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"operation": map[string]any{
+				"type":        "string",
+				"description": operationDescription,
+			},
+			"payload": map[string]any{
+				"type":        "object",
+				"description": "The selected operation's input object.",
+			},
+		},
+		"required": []any{"operation"},
+	}
+}
+
 func registerCompactTools(server *mcp.Server, service *Service, cfg config.Config) {
 	if cfg.Capabilities.ListProjects {
 		mcp.AddTool(server, &mcp.Tool{
@@ -1524,6 +1547,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "opengrok_search",
 			Description: "Search OpenGrok code and symbols. operation=code searches text/path/history/definition/reference; operation=definitions finds symbol definitions; operation=references finds symbol references. Payload is the selected operation's input object.",
+			InputSchema: compactInputSchema("one of: code, definitions, references"),
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.CompactSearch(ctx, input)
 			return nil, output, err
@@ -1534,6 +1558,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "opengrok_symbols",
 			Description: "Work with OpenGrok symbols. operation=list lists symbols (requires list_symbols capability); operation=implementations finds candidate implementations of a symbol; operation=cross_project_references finds references across projects. Each operation payload matches the corresponding full tool input.",
+			InputSchema: compactInputSchema("one of: list, implementations, cross_project_references"),
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactSymbolsInput) (*mcp.CallToolResult, any, error) {
 			output, err := service.CompactSymbols(ctx, input)
 			return nil, output, err
@@ -1544,6 +1569,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "opengrok_read",
 			Description: "Read OpenGrok files or line windows. operation=file and operation=context both use a file-context payload.",
+			InputSchema: compactInputSchema("one of: file, context"),
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactReadInput) (*mcp.CallToolResult, FileContextOutput, error) {
 			output, err := service.CompactRead(ctx, input)
 			return nil, output, err
@@ -1555,6 +1581,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "opengrok_compound",
 			Description: "Compound OpenGrok operations. operation=search_and_read searches and reads file content around matches; operation=find_symbol_and_references finds a symbol's definition and references. Each operation payload matches the corresponding full tool input.",
+			InputSchema: compactInputSchema("one of: search_and_read, find_symbol_and_references"),
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactCompoundInput) (*mcp.CallToolResult, any, error) {
 			output, err := service.CompactCompound(ctx, input)
 			return nil, output, err
@@ -1565,6 +1592,7 @@ func registerCompactTools(server *mcp.Server, service *Service, cfg config.Confi
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "opengrok_memory",
 			Description: "Interact with the server's process-scoped memory bank. Available only for stdio servers with memory enabled.",
+			InputSchema: compactInputSchema("one of: set, get, list, delete, clear"),
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactMemoryInput) (*mcp.CallToolResult, any, error) {
 			output, err := service.CompactMemory(ctx, input)
 			return nil, output, err
