@@ -94,7 +94,7 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Transport:       TransportStdio,
-		ToolSurface:     ToolSurfaceFull,
+		ToolSurface:     ToolSurfaceCompact,
 		Listen:          "127.0.0.1:8765",
 		ProjectRequired: true,
 		Capabilities: Capabilities{

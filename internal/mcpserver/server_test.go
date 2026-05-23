@@ -859,6 +859,7 @@ func TestListProjectsUsesConfiguredProjects(t *testing.T) {
 
 func TestNewMCPServerRegistersOnlyEnabledTools(t *testing.T) {
 	cfg := testConfig()
+	cfg.ToolSurface = config.ToolSurfaceFull
 	cfg.Capabilities = config.Capabilities{
 		SearchCode:              true,
 		SearchSymbolDefinitions: true,
@@ -1616,6 +1617,7 @@ func TestSearchSymbolDefinitionsExpandContext(t *testing.T) {
 
 func TestNewMCPServerRegistersListSymbolsWhenEnabled(t *testing.T) {
 	cfg := testConfig()
+	cfg.ToolSurface = config.ToolSurfaceFull
 	cfg.Capabilities = config.Capabilities{ListSymbols: true}
 	server := NewMCPServer(cfg, &fakeBackend{}, "test")
 	clientSession, cleanup := connectMCPServer(t, server)
