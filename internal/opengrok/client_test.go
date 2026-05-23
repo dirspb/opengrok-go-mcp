@@ -3,6 +3,7 @@
 package opengrok
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -496,6 +497,69 @@ func TestFileContentFallsBackToRawWebURL(t *testing.T) {
 	}
 	if got != "one\ntwo\n" {
 		t.Fatalf("FileContent() = %q, want raw content", got)
+	}
+}
+
+func TestDoGETAcceptsResponseAtMaximumSize(t *testing.T) {
+	body := bytes.Repeat([]byte("x"), maxResponseBytes)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write(body); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client())
+	got, _, err := client.doGET(context.Background(), server.URL, "/", "api")
+	if err != nil {
+		t.Fatalf("doGET() error = %v, want nil", err)
+	}
+	if len(got) != maxResponseBytes {
+		t.Fatalf("doGET() body length = %d, want %d", len(got), maxResponseBytes)
+	}
+}
+
+func TestListProjectsRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write(bytes.Repeat([]byte("x"), maxResponseBytes+1)); err != nil {
+			t.Fatalf("Write() error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL+"/api/v1", server.Client())
+	_, err := client.ListProjects(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "response exceeds") {
+		t.Fatalf("ListProjects() error = %v, want response limit error", err)
+	}
+}
+
+func TestFileContentRawFallbackRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/file/content":
+			http.Error(w, "not found", http.StatusNotFound)
+		case "/source/raw/platform/src/Engine.swift":
+			if _, err := w.Write(bytes.Repeat([]byte("x"), maxResponseBytes+1)); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+		default:
+			t.Fatalf("path = %q, want API or raw web path", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(
+		server.URL+"/api/v1",
+		server.Client(),
+		WithWebBaseURL(server.URL+"/source"),
+	)
+	content, err := client.FileContent(context.Background(), "platform", "src/Engine.swift")
+	if err == nil || !strings.Contains(err.Error(), "response exceeds") {
+		t.Fatalf("FileContent() error = %v, want response limit error", err)
+	}
+	if content != "" {
+		t.Fatalf("FileContent() = %q, want empty content on oversized response", content)
 	}
 }
 

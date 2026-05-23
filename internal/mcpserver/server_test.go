@@ -813,6 +813,171 @@ func TestSearchSymbolDefinitionsUsesDefinitionModeAndSetsSymbolKind(t *testing.T
 	}
 }
 
+func TestFindSymbolAndReferencesPaginatesReferencesOnly(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 18,
+			Hits: []opengrok.Hit{
+				{
+					Project:    "platform",
+					FilePath:   "src/Engine.swift",
+					LineNumber: 42,
+					Snippet:    strPtr("final class Engine {}"),
+				},
+			},
+		},
+		fileContent: "final class Engine {}\n",
+	}
+	service := NewService(testConfig(), backend)
+
+	firstPage, err := service.FindSymbolAndReferences(context.Background(), FindSymbolAndReferencesInput{
+		Symbol:   "Engine",
+		PageSize: 7,
+	})
+	if err != nil {
+		t.Fatalf("first FindSymbolAndReferences returned error: %v", err)
+	}
+	if firstPage.Definition == nil {
+		t.Fatal("first Definition is nil, want repeated definition context")
+	}
+	if firstPage.NextCursor == nil {
+		t.Fatal("first NextCursor is nil, want reference pagination cursor")
+	}
+
+	secondPage, err := service.FindSymbolAndReferences(context.Background(), FindSymbolAndReferencesInput{
+		Symbol: "Engine",
+		Cursor: firstPage.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("second FindSymbolAndReferences returned error: %v", err)
+	}
+	if secondPage.Definition == nil {
+		t.Fatal("second Definition is nil, want repeated definition context")
+	}
+
+	want := []struct {
+		mode   opengrok.Mode
+		limit  int
+		offset int
+	}{
+		{mode: opengrok.ModeDefinition, limit: 20, offset: 0},
+		{mode: opengrok.ModeReference, limit: 7, offset: 0},
+		{mode: opengrok.ModeDefinition, limit: 20, offset: 0},
+		{mode: opengrok.ModeReference, limit: 7, offset: 7},
+	}
+	if len(backend.searchRequests) != len(want) {
+		t.Fatalf("backend.Search calls = %d, want %d", len(backend.searchRequests), len(want))
+	}
+	for i, wantReq := range want {
+		gotReq := backend.searchRequests[i]
+		if gotReq.Mode != wantReq.mode || gotReq.Limit != wantReq.limit || gotReq.Offset != wantReq.offset {
+			t.Fatalf(
+				"request %d = mode %q limit %d offset %d, want mode %q limit %d offset %d",
+				i,
+				gotReq.Mode,
+				gotReq.Limit,
+				gotReq.Offset,
+				wantReq.mode,
+				wantReq.limit,
+				wantReq.offset,
+			)
+		}
+	}
+}
+
+func TestFindSymbolAndReferencesRejectsInvalidCursorBeforeDefinitionWork(t *testing.T) {
+	invalidCursor := "not-a-valid-cursor!!!"
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 1,
+			Hits: []opengrok.Hit{
+				{
+					Project:    "platform",
+					FilePath:   "src/Engine.swift",
+					LineNumber: 42,
+				},
+			},
+		},
+		fileContent: "final class Engine {}\n",
+	}
+	service := NewService(testConfig(), backend)
+
+	_, err := service.FindSymbolAndReferences(context.Background(), FindSymbolAndReferencesInput{
+		Symbol: "Engine",
+		Cursor: &invalidCursor,
+	})
+	if err == nil {
+		t.Fatal("FindSymbolAndReferences error is nil, want INVALID_CURSOR")
+	}
+	if !IsCode(err, "INVALID_CURSOR") {
+		t.Fatalf("FindSymbolAndReferences error = %v, want INVALID_CURSOR", err)
+	}
+	if len(backend.searchRequests) != 0 {
+		t.Fatalf("backend.Search calls = %d, want 0", len(backend.searchRequests))
+	}
+	if backend.fileCallCount != 0 {
+		t.Fatalf("backend.FileContent calls = %d, want 0", backend.fileCallCount)
+	}
+}
+
+func TestFindSymbolAndReferencesRejectsResponseModeBeforeInvalidCursor(t *testing.T) {
+	invalidCursor := "not-a-valid-cursor!!!"
+	backend := &fakeBackend{}
+	service := NewService(testConfig(), backend)
+
+	_, err := service.FindSymbolAndReferences(context.Background(), FindSymbolAndReferencesInput{
+		Symbol:       "Engine",
+		ResponseMode: "invalid",
+		Cursor:       &invalidCursor,
+	})
+	if err == nil {
+		t.Fatal("FindSymbolAndReferences error is nil, want INVALID_RESPONSE_MODE")
+	}
+	if !IsCode(err, "INVALID_RESPONSE_MODE") {
+		t.Fatalf("FindSymbolAndReferences error = %v, want INVALID_RESPONSE_MODE", err)
+	}
+	if len(backend.searchRequests) != 0 {
+		t.Fatalf("backend.Search calls = %d, want 0", len(backend.searchRequests))
+	}
+	if backend.fileCallCount != 0 {
+		t.Fatalf("backend.FileContent calls = %d, want 0", backend.fileCallCount)
+	}
+}
+
+func TestFindSymbolAndReferencesRejectsMismatchedCursorBeforeDefinitionWork(t *testing.T) {
+	mismatchedCursor, err := cursor.Encode(cursor.State{
+		Project:  "platform",
+		Projects: []string{"platform"},
+		Query:    "DifferentEngine",
+		Mode:     string(opengrok.ModeReference),
+		Offset:   7,
+		PageSize: 7,
+	})
+	if err != nil {
+		t.Fatalf("cursor Encode returned error: %v", err)
+	}
+
+	backend := &fakeBackend{}
+	service := NewService(testConfig(), backend)
+
+	_, err = service.FindSymbolAndReferences(context.Background(), FindSymbolAndReferencesInput{
+		Symbol: "Engine",
+		Cursor: &mismatchedCursor,
+	})
+	if err == nil {
+		t.Fatal("FindSymbolAndReferences error is nil, want INVALID_CURSOR")
+	}
+	if !IsCode(err, "INVALID_CURSOR") {
+		t.Fatalf("FindSymbolAndReferences error = %v, want INVALID_CURSOR", err)
+	}
+	if len(backend.searchRequests) != 0 {
+		t.Fatalf("backend.Search calls = %d, want 0", len(backend.searchRequests))
+	}
+	if backend.fileCallCount != 0 {
+		t.Fatalf("backend.FileContent calls = %d, want 0", backend.fileCallCount)
+	}
+}
+
 func TestListProjectsReturnsResourceURIs(t *testing.T) {
 	backend := &fakeBackend{
 		projects: []string{"platform", "tools"},
@@ -888,6 +1053,52 @@ func TestNewMCPServerRegistersOnlyEnabledTools(t *testing.T) {
 	}
 }
 
+func TestFullSurfaceRegistersProjectOverviewOnlyWithListFiles(t *testing.T) {
+	tests := []struct {
+		name         string
+		capabilities config.Capabilities
+		wantPresent  bool
+	}{
+		{
+			name:         "list projects only",
+			capabilities: config.Capabilities{ListProjects: true},
+			wantPresent:  false,
+		},
+		{
+			name:         "list files only",
+			capabilities: config.Capabilities{ListFiles: true},
+			wantPresent:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.ToolSurface = config.ToolSurfaceFull
+			cfg.Capabilities = tt.capabilities
+			server := NewMCPServer(cfg, &fakeBackend{}, "test")
+			clientSession, cleanup := connectMCPServer(t, server)
+			defer cleanup()
+
+			tools, err := clientSession.ListTools(context.Background(), nil)
+			if err != nil {
+				t.Fatalf("ListTools returned error: %v", err)
+			}
+
+			gotPresent := false
+			for _, tool := range tools.Tools {
+				if tool.Name == "get_project_overview" {
+					gotPresent = true
+					break
+				}
+			}
+			if gotPresent != tt.wantPresent {
+				t.Fatalf("get_project_overview present = %t, want %t", gotPresent, tt.wantPresent)
+			}
+		})
+	}
+}
+
 func TestCompactSurfaceDoesNotExposeContentOrMemoryWithoutCapabilities(t *testing.T) {
 	cfg := testConfig()
 	cfg.ToolSurface = config.ToolSurfaceCompact
@@ -932,6 +1143,39 @@ func TestGatewayRegistryDoesNotExposeContentOrMemoryWithoutCapabilities(t *testi
 		if _, ok := registry[operation]; ok {
 			t.Fatalf("operation %q registered without required capability", operation)
 		}
+	}
+}
+
+func TestGatewayRegistryRegistersProjectOverviewOnlyWithListFiles(t *testing.T) {
+	tests := []struct {
+		name         string
+		capabilities config.Capabilities
+		wantPresent  bool
+	}{
+		{
+			name:         "list projects only",
+			capabilities: config.Capabilities{ListProjects: true},
+			wantPresent:  false,
+		},
+		{
+			name:         "list files only",
+			capabilities: config.Capabilities{ListFiles: true},
+			wantPresent:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.ToolSurface = config.ToolSurfaceGateway
+			cfg.Capabilities = tt.capabilities
+			registry := buildGatewayRegistry(NewService(cfg, &fakeBackend{}), cfg)
+
+			_, gotPresent := registry["project.overview"]
+			if gotPresent != tt.wantPresent {
+				t.Fatalf("project.overview present = %t, want %t", gotPresent, tt.wantPresent)
+			}
+		})
 	}
 }
 

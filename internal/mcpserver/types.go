@@ -416,6 +416,8 @@ type FindSymbolAndReferencesInput struct {
 	Project          string   `json:"project,omitempty"`
 	Projects         []string `json:"projects,omitempty"`
 	Symbol           string   `json:"symbol"`
+	PageSize         int      `json:"page_size,omitempty"`
+	Cursor           *string  `json:"cursor,omitempty"`
 	IncludeLinks     *bool    `json:"include_links,omitempty"`
 	IncludeSnippets  *bool    `json:"include_snippets,omitempty"`
 	ResponseMode     string   `json:"response_mode,omitempty"`

@@ -386,10 +386,13 @@ func (c *Client) doGET(ctx context.Context, requestURL string, pathDesc string, 
 			time.Since(start),
 		)
 
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 		resp.Body.Close()
 		if readErr != nil {
 			return nil, resp.StatusCode, fmt.Errorf("GET %s: read response: %w", pathDesc, readErr)
+		}
+		if len(body) > maxResponseBytes {
+			return nil, resp.StatusCode, fmt.Errorf("GET %s: response exceeds %d-byte limit", pathDesc, maxResponseBytes)
 		}
 
 		lastBody = body

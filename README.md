@@ -232,38 +232,13 @@ Avoid passing secrets as CLI flags. Use environment variables for OpenGrok auth 
 
 ## Known Limitations
 
-- **Multi-project result attribution is heuristic.** When searching across multiple
-  projects, result paths are matched against the queried project names by prefix.
-  If OpenGrok returns a path that doesn't match any queried project, the server falls
-  back to the default project. This can misattribute hits when project names overlap
-  or when OpenGrok returns unexpected path formats.
+- Large project traversal is bounded, and some search and discovery
+  operations are best-effort rather than language-semantic.
+- HTTP transport is intended for controlled local or internal setups and does
+  not add inbound client authentication.
 
-- **File listing is capped at 5,000 entries.** `list_files` and `get_project_overview`
-  hard-cap the file list at 5,000 entries. The `truncated` flag and `warning` field
-  are set when this occurs, but there is no cursor continuation beyond the cap. If
-  you don't see the file you're looking for, try narrowing with a more specific path.
-
-- **Compound tools (`search_and_read`, `find_symbol_and_references`) cannot paginate.**
-  These tools return a `next_cursor` but accept no `cursor` input — the cursor field
-  is unusable. Only the first page of results is available through these compound
-  operations. Use individual search and read calls for full pagination.
-
-- **`search_implementations` is best-effort.** OpenGrok does not provide
-  language-semantic implementation mapping. This tool delegates to
-  `search_symbol_references` and returns candidate matches, not guaranteed
-  implementations.
-
-- **Memory tools are process-wide, not per-session.** The `memory_set`/`memory_get`
-  tools share a single key-value store across all clients of the same server process.
-  In HTTP mode this means one client can read another client's stored data. Memory
-  tools are not registered over HTTP for this reason.
-
-- **Stdio mode has no graceful shutdown.** The server process started in stdio mode
-  does not propagate SIGTERM/SIGINT to the MCP handler. HTTP mode handles this
-  correctly via `signal.NotifyContext`.
-
-- **MCP Go SDK compatibility may change across releases.** The SDK version is pinned
-  in `go.mod`; review release notes before upgrading.
+See [docs/limitations.md](docs/limitations.md) for the detailed current list,
+behavioral impact, and mitigations.
 
 ## License
 

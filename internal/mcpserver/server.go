@@ -597,6 +597,43 @@ func (s *Service) SearchSymbolReferences(ctx context.Context, input SymbolSearch
 	})
 }
 
+func (s *Service) validateSymbolReferenceCursor(input SymbolSearchInput) error {
+	if err := validateResponseMode(input.ResponseMode); err != nil {
+		return err
+	}
+
+	value := cursorValue(input.Cursor)
+	if value == "" {
+		return nil
+	}
+
+	projects, err := s.resolveSearchProjects(
+		input.Project,
+		input.Projects,
+		input.AllowAllProjects != nil && *input.AllowAllProjects,
+	)
+	if err != nil {
+		return err
+	}
+
+	state, err := cursor.Decode(value)
+	if err != nil {
+		return invalidCursorError()
+	}
+
+	expected := cursor.State{
+		Project:  firstProject(projects),
+		Projects: projects,
+		Query:    input.Symbol,
+		Mode:     string(opengrok.ModeReference),
+	}
+	if err := state.Validate(expected); err != nil {
+		return invalidCursorError()
+	}
+
+	return nil
+}
+
 func (s *Service) SearchCrossProjectReferences(ctx context.Context, input CrossProjectReferencesInput) (CrossProjectReferencesOutput, error) {
 	symbolSearchInput := SymbolSearchInput{
 		Projects:         input.Projects,
@@ -774,6 +811,22 @@ func (s *Service) FindSymbolAndReferences(ctx context.Context, input FindSymbolA
 		return FindSymbolAndReferencesOutput{}, err
 	}
 
+	referenceInput := SymbolSearchInput{
+		Project:          input.Project,
+		Projects:         input.Projects,
+		Symbol:           input.Symbol,
+		PageSize:         input.PageSize,
+		Cursor:           input.Cursor,
+		IncludeLinks:     input.IncludeLinks,
+		IncludeSnippets:  input.IncludeSnippets,
+		AllowAllProjects: input.AllowAllProjects,
+		ResponseMode:     input.ResponseMode,
+		ContextBudget:    input.ContextBudget,
+	}
+	if err := s.validateSymbolReferenceCursor(referenceInput); err != nil {
+		return FindSymbolAndReferencesOutput{}, err
+	}
+
 	defOutput, err := s.SearchSymbolDefinitions(ctx, SymbolSearchInput{
 		Project:          input.Project,
 		Projects:         input.Projects,
@@ -811,16 +864,7 @@ func (s *Service) FindSymbolAndReferences(ctx context.Context, input FindSymbolA
 		}
 	}
 
-	refOutput, err := s.SearchSymbolReferences(ctx, SymbolSearchInput{
-		Project:          input.Project,
-		Projects:         input.Projects,
-		Symbol:           input.Symbol,
-		IncludeLinks:     input.IncludeLinks,
-		IncludeSnippets:  input.IncludeSnippets,
-		AllowAllProjects: input.AllowAllProjects,
-		ResponseMode:     input.ResponseMode,
-		ContextBudget:    input.ContextBudget,
-	})
+	refOutput, err := s.SearchSymbolReferences(ctx, referenceInput)
 	if err != nil {
 		return FindSymbolAndReferencesOutput{}, err
 	}
@@ -1394,7 +1438,7 @@ func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) 
 		})
 	}
 
-	if cfg.Capabilities.ListProjects || cfg.Capabilities.ListFiles {
+	if cfg.Capabilities.ListFiles {
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "get_project_overview",
 			Description: "Get a high-level overview of an OpenGrok project: total file/directory counts and top-level directory and file entries.",
@@ -1545,20 +1589,6 @@ func buildGatewayRegistry(service *Service, cfg config.Config) map[string]gatewa
 				return service.ListProjects(ctx, input)
 			},
 		}
-
-		registry["project.overview"] = gatewayOperation{
-			Manifest: GatewayOperation{
-				Name:        "project.overview",
-				Description: "Get project overview with file and directory counts.",
-			},
-			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
-				var input ProjectOverviewInput
-				if err := json.Unmarshal(raw, &input); err != nil {
-					return nil, fmt.Errorf("decode payload: %w", err)
-				}
-				return service.GetProjectOverview(ctx, input)
-			},
-		}
 	}
 
 	if cfg.Capabilities.SearchCode {
@@ -1637,6 +1667,20 @@ func buildGatewayRegistry(service *Service, cfg config.Config) map[string]gatewa
 					return nil, fmt.Errorf("decode payload: %w", err)
 				}
 				return service.ListFiles(ctx, input)
+			},
+		}
+
+		registry["project.overview"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "project.overview",
+				Description: "Get project overview with file and directory counts.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input ProjectOverviewInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.GetProjectOverview(ctx, input)
 			},
 		}
 	}
@@ -1913,12 +1957,20 @@ type searchRequest struct {
 	contextBudget    string
 }
 
+func validateResponseMode(responseMode string) error {
+	if responseMode == "" || responseMode == "full" || responseMode == "compact" {
+		return nil
+	}
+
+	return &Error{
+		Code:    codeInvalidResponseMode,
+		Message: fmt.Sprintf("Invalid response_mode %q; valid values: full, compact", responseMode),
+	}
+}
+
 func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, error) {
-	if req.responseMode != "" && req.responseMode != "full" && req.responseMode != "compact" {
-		return emptySearchOutput(req.mode, req.query), &Error{
-			Code:    codeInvalidResponseMode,
-			Message: fmt.Sprintf("Invalid response_mode %q; valid values: full, compact", req.responseMode),
-		}
+	if err := validateResponseMode(req.responseMode); err != nil {
+		return emptySearchOutput(req.mode, req.query), err
 	}
 
 	budget, err := s.resolveBudgetTier(req.contextBudget)
