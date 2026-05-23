@@ -15,46 +15,84 @@ const (
 	TransportHTTP  = "http"
 )
 
+const (
+	ToolSurfaceFull    = "full"
+	ToolSurfaceCompact = "compact"
+	ToolSurfaceGateway = "gateway"
+)
+
+const (
+	ContextBudgetMinimal = "minimal"
+	ContextBudgetDefault = "default"
+	ContextBudgetMaximal = "maximal"
+)
+
 type Capabilities struct {
 	ListProjects            bool
 	SearchCode              bool
 	SearchSymbolDefinitions bool
 	SearchSymbolReferences  bool
-	GetFileContext           bool
+	GetFileContext          bool
 	ListSymbols             bool
+	ListFiles               bool
+	ServerSideSort          bool
+	Memory                  bool
 }
 
-// Config contains runtime settings for the OpenGrok MCP server.
+type BudgetValues struct {
+	ContextBefore      int
+	ContextAfter       int
+	MaxExpandedResults int
+	MaxExpandedFiles   int
+}
+
+type BudgetTiers struct {
+	Minimal BudgetValues
+	Default BudgetValues
+	Maximal BudgetValues
+}
+
 type Config struct {
-	Transport              string
-	Debug                  bool
-	Listen                 string
-	OpenGrokAPIBaseURL     string
-	OpenGrokWebBaseURL     string
-	OpenGrokAPIToken       string
-	OpenGrokBasicAuthToken string
-	Projects               []string
-	ProbeFile              string
-	DefaultProject         string
-	ProjectRequired        bool
-	Capabilities           Capabilities
-	PageSizeDefault        int
-	PageSizeMax            int
-	IncludeLinksDefault    bool
-	EnableRawLinks         bool
-	ReadTimeout            time.Duration
-	WriteTimeout           time.Duration
-	LogLevel               string
-	InsecureSkipTLSVerify  bool
-	AutoExpandContext      bool
-	ContextBefore          int
-	ContextAfter           int
+	Transport               string
+	ToolSurface             string
+	Debug                   bool
+	Listen                  string
+	OpenGrokAPIBaseURL      string
+	OpenGrokWebBaseURL      string
+	OpenGrokAPIToken        string
+	OpenGrokBasicAuthToken  string
+	Projects                []string
+	ProbeFile               string
+	DefaultProject          string
+	ProjectRequired         bool
+	Capabilities            Capabilities
+	PageSizeDefault         int
+	PageSizeMax             int
+	IncludeLinksDefault     bool
+	EnableRawLinks          bool
+	ReadTimeout             time.Duration
+	WriteTimeout            time.Duration
+	LogLevel                string
+	InsecureSkipTLSVerify   bool
+	AutoExpandContext       bool
+	ContextBefore           int
+	ContextAfter            int
+	MaxExpandedResults      int
+	MaxExpandedFiles        int
+	ContextFetchConcurrency int
+	RetryMaxAttempts        int
+	RetryBaseDelay          time.Duration
+	CursorSecret            string
+	CacheEnabled            bool
+	CacheTTL                time.Duration
+	CacheMaxSize            int
+	BudgetTiers             BudgetTiers
 }
 
-// Default returns the baseline configuration.
 func Default() Config {
 	return Config{
 		Transport:       TransportStdio,
+		ToolSurface:     ToolSurfaceFull,
 		Listen:          "127.0.0.1:8765",
 		ProjectRequired: true,
 		Capabilities: Capabilities{
@@ -63,21 +101,49 @@ func Default() Config {
 			SearchSymbolDefinitions: true,
 			SearchSymbolReferences:  true,
 			GetFileContext:          true,
+			Memory:                  true,
 		},
-		PageSizeDefault:     20,
-		PageSizeMax:         100,
-		IncludeLinksDefault: true,
-		EnableRawLinks:      true,
-		ReadTimeout:         10 * time.Second,
-		WriteTimeout:        10 * time.Second,
-		LogLevel:            "info",
-		AutoExpandContext:   true,
-		ContextBefore:       5,
-		ContextAfter:        10,
+		PageSizeDefault:         20,
+		PageSizeMax:             100,
+		IncludeLinksDefault:     true,
+		EnableRawLinks:          true,
+		ReadTimeout:             10 * time.Second,
+		WriteTimeout:            10 * time.Second,
+		LogLevel:                "info",
+		AutoExpandContext:       true,
+		ContextBefore:           5,
+		ContextAfter:            10,
+		MaxExpandedResults:      10,
+		MaxExpandedFiles:        5,
+		ContextFetchConcurrency: 3,
+		RetryMaxAttempts:        2,
+		RetryBaseDelay:          200 * time.Millisecond,
+		CacheEnabled:            false,
+		CacheTTL:                5 * time.Minute,
+		CacheMaxSize:            1000,
+		BudgetTiers: BudgetTiers{
+			Minimal: BudgetValues{
+				ContextBefore:      2,
+				ContextAfter:       3,
+				MaxExpandedResults: 3,
+				MaxExpandedFiles:   2,
+			},
+			Default: BudgetValues{
+				ContextBefore:      5,
+				ContextAfter:       10,
+				MaxExpandedResults: 10,
+				MaxExpandedFiles:   5,
+			},
+			Maximal: BudgetValues{
+				ContextBefore:      15,
+				ContextAfter:       30,
+				MaxExpandedResults: 25,
+				MaxExpandedFiles:   10,
+			},
+		},
 	}
 }
 
-// FromEnv returns configuration with supported environment variable overrides.
 func FromEnv() Config {
 	cfg := Default()
 
@@ -86,6 +152,14 @@ func FromEnv() Config {
 	}
 	if value := os.Getenv("OPENGROK_MCP_TRANSPORT"); value != "" {
 		cfg.Transport = strings.ToLower(value)
+	}
+	if value := os.Getenv("OPENGROK_MCP_TOOL_SURFACE"); value != "" {
+		cfg.ToolSurface = strings.ToLower(value)
+	}
+	if value := os.Getenv("OPENGROK_MCP_MEMORY_ENABLED"); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			cfg.Capabilities.Memory = parsed
+		}
 	}
 	if value := os.Getenv("OPENGROK_MCP_BASE_URL"); value != "" {
 		cfg.OpenGrokAPIBaseURL = value
@@ -141,11 +215,57 @@ func FromEnv() Config {
 			cfg.ContextAfter = parsed
 		}
 	}
+	if value := os.Getenv("OPENGROK_MCP_MAX_EXPANDED_RESULTS"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
+			cfg.MaxExpandedResults = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_MAX_EXPANDED_FILES"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
+			cfg.MaxExpandedFiles = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_CONTEXT_FETCH_CONCURRENCY"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			cfg.ContextFetchConcurrency = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_RETRY_MAX_ATTEMPTS"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			cfg.RetryMaxAttempts = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_RETRY_BASE_DELAY"); value != "" {
+		if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
+			cfg.RetryBaseDelay = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_CURSOR_SECRET"); value != "" {
+		cfg.CursorSecret = value
+	}
+	if value := os.Getenv("OPENGROK_MCP_CACHE_ENABLED"); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			cfg.CacheEnabled = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_CACHE_TTL"); value != "" {
+		if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
+			cfg.CacheTTL = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_CACHE_MAX_SIZE"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			cfg.CacheMaxSize = parsed
+		}
+	}
+
+	cfg.BudgetTiers.Minimal = parseBudgetTierEnv("MINIMAL", cfg.BudgetTiers.Minimal)
+	cfg.BudgetTiers.Default = parseBudgetTierEnv("DEFAULT", cfg.BudgetTiers.Default)
+	cfg.BudgetTiers.Maximal = parseBudgetTierEnv("MAXIMAL", cfg.BudgetTiers.Maximal)
 
 	return cfg
 }
 
-// RegisterFlags binds command-line flags to the configuration.
 func (c *Config) RegisterFlags(fs *flag.FlagSet) error {
 	if fs == nil {
 		return errors.New("flag set is nil")
@@ -176,7 +296,20 @@ func splitCSV(value string) []string {
 	return values
 }
 
-// Validate checks whether the configuration is usable.
+func deriveWebBaseURL(apiBaseURL string) string {
+	trimmed := strings.TrimRight(apiBaseURL, "/")
+	return strings.TrimSuffix(trimmed, "/api/v1")
+}
+
+func (c *Config) applyDerivedDefaults() {
+	if c.OpenGrokWebBaseURL == "" && c.OpenGrokAPIBaseURL != "" {
+		c.OpenGrokWebBaseURL = deriveWebBaseURL(c.OpenGrokAPIBaseURL)
+	}
+	if c.DefaultProject == "" && len(c.Projects) == 1 {
+		c.DefaultProject = c.Projects[0]
+	}
+}
+
 func (c *Config) Validate() error {
 	c.Transport = strings.ToLower(c.Transport)
 	switch c.Transport {
@@ -188,14 +321,30 @@ func (c *Config) Validate() error {
 	default:
 		return fmt.Errorf("unsupported transport %q", c.Transport)
 	}
+	c.ToolSurface = strings.ToLower(c.ToolSurface)
+	switch c.ToolSurface {
+	case ToolSurfaceFull, ToolSurfaceCompact, ToolSurfaceGateway:
+	default:
+		return fmt.Errorf("unsupported tool surface %q", c.ToolSurface)
+	}
 	if c.OpenGrokAPIBaseURL == "" {
 		return errors.New("OpenGrok API base URL is required")
 	}
 	if c.OpenGrokWebBaseURL == "" {
+		trimmedAPIBaseURL := strings.TrimRight(c.OpenGrokAPIBaseURL, "/")
+		if !strings.HasSuffix(trimmedAPIBaseURL, "/api/v1") {
+			return errors.New("OPENGROK_MCP_WEB_BASE_URL is required when OPENGROK_MCP_BASE_URL does not end in /api/v1")
+		}
+	}
+	c.applyDerivedDefaults()
+	if c.OpenGrokWebBaseURL == "" {
 		return errors.New("OpenGrok web base URL is required")
 	}
 	if c.DefaultProject == "" {
-		return errors.New("OPENGROK_MCP_DEFAULT_PROJECT is required")
+		if len(c.Projects) > 1 {
+			return errors.New("OPENGROK_MCP_DEFAULT_PROJECT is required when multiple OPENGROK_MCP_PROJECTS are configured")
+		}
+		return errors.New("OPENGROK_MCP_DEFAULT_PROJECT is required unless OPENGROK_MCP_PROJECTS contains exactly one project")
 	}
 	if c.OpenGrokAPIToken != "" && c.OpenGrokBasicAuthToken != "" {
 		return errors.New("only one OpenGrok auth token may be configured")
@@ -212,4 +361,29 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func parseBudgetTierEnv(tier string, defaults BudgetValues) BudgetValues {
+	result := defaults
+	if value := os.Getenv("OPENGROK_MCP_BUDGET_" + tier + "_BEFORE"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
+			result.ContextBefore = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_BUDGET_" + tier + "_AFTER"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
+			result.ContextAfter = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_BUDGET_" + tier + "_RESULTS"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
+			result.MaxExpandedResults = parsed
+		}
+	}
+	if value := os.Getenv("OPENGROK_MCP_BUDGET_" + tier + "_FILES"); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
+			result.MaxExpandedFiles = parsed
+		}
+	}
+	return result
 }

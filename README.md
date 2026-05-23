@@ -20,8 +20,6 @@ Add this to `opencode.json`:
       "enabled": true,
       "environment": {
         "OPENGROK_MCP_BASE_URL": "https://grok.example.com/source/api/v1",
-        "OPENGROK_MCP_WEB_BASE_URL": "https://grok.example.com/source",
-        "OPENGROK_MCP_PROJECTS": "platform",
         "OPENGROK_MCP_DEFAULT_PROJECT": "platform",
         "OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
       }
@@ -32,6 +30,9 @@ Add this to `opencode.json`:
 
 For Basic auth use only the base64 token value, without the `Basic ` prefix. Set exactly one of
 `OPENGROK_MCP_API_TOKEN` or `OPENGROK_MCP_BASIC_AUTH_TOKEN`.
+
+`OPENGROK_MCP_WEB_BASE_URL` may be omitted when `OPENGROK_MCP_BASE_URL` ends in
+`/api/v1`; the server derives it by trimming that suffix.
 
 ## Claude Code
 
@@ -45,7 +46,6 @@ Add to `~/.claude.json` under `mcpServers`, or run `claude mcp add`:
       "args": ["run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@latest"],
       "env": {
         "OPENGROK_MCP_BASE_URL": "https://grok.example.com/source/api/v1",
-        "OPENGROK_MCP_WEB_BASE_URL": "https://grok.example.com/source",
         "OPENGROK_MCP_DEFAULT_PROJECT": "platform",
         "OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
       }
@@ -65,15 +65,15 @@ command = ["go", "run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-m
 
 [mcp_servers.env]
 OPENGROK_MCP_BASE_URL = "https://grok.example.com/source/api/v1"
-OPENGROK_MCP_WEB_BASE_URL = "https://grok.example.com/source"
 OPENGROK_MCP_DEFAULT_PROJECT = "platform"
 OPENGROK_MCP_BASIC_AUTH_TOKEN = "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
 ```
 
 `OPENGROK_MCP_PROJECTS` is optional but recommended when `/projects/indexed` is
-not accessible. When configured, explicit project arguments must match this
-list. Agents should normally omit `project` and let the server use
-`OPENGROK_MCP_DEFAULT_PROJECT`.
+not accessible. If it contains exactly one project, `OPENGROK_MCP_DEFAULT_PROJECT`
+may be omitted and the server uses that project as the default. When multiple
+projects are configured, set `OPENGROK_MCP_DEFAULT_PROJECT`. Explicit project
+arguments must match the configured list.
 
 ## HTTP Mode
 
@@ -82,7 +82,7 @@ OpenCode should use local command mode. For manual HTTP use:
 ```bash
 OPENGROK_MCP_TRANSPORT=http \
 OPENGROK_MCP_BASE_URL=https://grok.example.com/source/api/v1 \
-OPENGROK_MCP_WEB_BASE_URL=https://grok.example.com/source \
+OPENGROK_MCP_DEFAULT_PROJECT=platform \
 go run ./cmd/opengrok-go-mcp
 ```
 
@@ -97,17 +97,23 @@ http://127.0.0.1:8765/mcp
 Required:
 
 - `OPENGROK_MCP_BASE_URL`: OpenGrok API base URL ending in `/api/v1`.
-- `OPENGROK_MCP_WEB_BASE_URL`: OpenGrok web UI base URL, used for citations and raw file fallback.
-- `OPENGROK_MCP_DEFAULT_PROJECT`: project used when tool calls omit `project`.
+- `OPENGROK_MCP_DEFAULT_PROJECT`: project used when tool calls omit `project`. Optional only when `OPENGROK_MCP_PROJECTS` contains exactly one project.
 
 Common optional settings:
 
 - `OPENGROK_MCP_API_TOKEN`: sends `Authorization: Bearer <token>`.
 - `OPENGROK_MCP_BASIC_AUTH_TOKEN`: sends `Authorization: Basic <token>`.
+- `OPENGROK_MCP_WEB_BASE_URL`: OpenGrok web UI base URL, used for citations and raw file fallback. Derived from `OPENGROK_MCP_BASE_URL` when omitted and the API URL ends in `/api/v1`.
 - `OPENGROK_MCP_PROJECTS`: comma-separated known OpenGrok projects.
 - `DEBUG=1`: log OpenGrok API and web requests to stderr.
 - `OPENGROK_MCP_TRANSPORT=http`: enable Streamable HTTP mode.
 - `OPENGROK_MCP_LISTEN`: HTTP listen address, default `127.0.0.1:8765`.
+- `OPENGROK_MCP_TOOL_SURFACE`: tool registration surface, default `full`.
+  Set to `compact` to expose wrapper tools instead of fine-grained tools.
+  Set to `gateway` to expose only `opengrok_discover` and `opengrok_call`
+  (experimental).
+- `OPENGROK_MCP_MEMORY_ENABLED`: default `true`. Set to `false` to disable
+  process-scoped memory tools. Memory tools are never exposed over HTTP.
 
 Less common:
 
@@ -118,6 +124,11 @@ Less common:
 - `OPENGROK_MCP_AUTO_EXPAND_CONTEXT`: default `true`. Set to `false` to disable automatic context expansion in search results.
 - `OPENGROK_MCP_CONTEXT_BEFORE`: default `5`. Lines before a match to include in auto-expanded context.
 - `OPENGROK_MCP_CONTEXT_AFTER`: default `10`. Lines after a match to include in auto-expanded context.
+- `OPENGROK_MCP_MAX_EXPANDED_RESULTS`: default `10`. Maximum number of search results to expand context for.
+- `OPENGROK_MCP_MAX_EXPANDED_FILES`: default `5`. Maximum number of unique files to fetch context from.
+- `OPENGROK_MCP_CONTEXT_FETCH_CONCURRENCY`: default `3`. Number of concurrent file fetches during context expansion.
+- `OPENGROK_MCP_RETRY_MAX_ATTEMPTS`: default `2`. Maximum retry attempts for transient OpenGrok errors (transport failures, HTTP 429, HTTP 5xx).
+- `OPENGROK_MCP_RETRY_BASE_DELAY`: default `200ms`. Base delay for exponential backoff between retries.
 
 ## Tools
 
@@ -130,6 +141,50 @@ At startup, the server probes OpenGrok and exposes only working tools:
 - `read_file` — read full file content. Returns up to 500 lines per call; `truncated` and `next_cursor` indicate more content, `total_lines` is always returned.
 - `get_file_context` — read a line window around a specific `line_number` from search results.
 - `list_projects` — list indexed projects, paginated at 50 per page; `total_projects` is always returned.
+- `list_files` — list files within a project path, paginated. Returns `FileItem` entries with `project`, `path`, `name`, `is_directory`, `num_lines`, `loc`, `size`, `description`, and `resource_uri`. Includes `next_cursor` for pagination. If the OpenGrok listing exceeds the safety cap, `truncated=true` and `warning` state that totals and remaining pages are incomplete. Gated by `ListFiles` capability (probed at startup).
+- `get_project_overview` — return project metadata including total files, total directories, and top-level file and directory listings. Returns `truncated=true` with a warning when derived from a capped file listing. Gated by `ListFiles` capability.
+- `search_implementations` — search for class and interface implementations by delegating to symbol-reference search (`mode=reference`). Results are best-effort candidate references, not exhaustive. Accepts `expand_context`. Gated by `SearchSymbolReferences` capability.
+- `search_cross_project_references` — search for symbol references across all configured projects. Returns grouped results by project with `attribution_uncertain` warnings. Gated by `SearchSymbolReferences` capability.
+- `search_and_read` and `find_symbol_and_references` — compound operations that return file content; exposed only when their search capabilities and `GetFileContext` are enabled.
+- `memory_set`, `memory_get`, `memory_list`, `memory_delete`, `memory_clear` — process-scoped investigation memory; exposed only for stdio servers with the `Memory` capability enabled. These tools are not registered for HTTP transport because memory is not isolated by client session.
+
+By default, `OPENGROK_MCP_TOOL_SURFACE=full` exposes the fine-grained tools
+above. `OPENGROK_MCP_TOOL_SURFACE=compact` exposes fewer wrapper tools, only
+when their backing capabilities are enabled:
+
+- `opengrok_projects` — list indexed projects.
+- `opengrok_search` — dispatch `operation=code`, `operation=definitions`, or
+  `operation=references` with a `payload` matching the corresponding full tool
+  input.
+- `opengrok_symbols` — dispatch `operation=list`, `operation=implementations`, or
+  `operation=cross_project_references` with a `payload` matching the
+  corresponding full tool input. `implementations` and `cross_project_references`
+  are gated by `SearchSymbolReferences` capability.
+- `opengrok_read` — dispatch `operation=file` or `operation=context` with a
+  `payload` matching `read_file`/`get_file_context` input.
+- `opengrok_compound` — dispatch compound read operations only when
+  `GetFileContext` and the relevant search capabilities are available.
+- `opengrok_memory` — process-scoped memory, available only for stdio servers
+  with the `Memory` capability enabled.
+
+In compact mode the fine-grained tools, such as `search_code`, are not
+registered. Resources remain available in both full and compact modes when their
+backing capabilities are enabled.
+
+### Gateway mode (experimental)
+
+`OPENGROK_MCP_TOOL_SURFACE=gateway` exposes only two tools:
+
+- `opengrok_discover` — returns the list of enabled operations and their
+  descriptions. Use this to learn what the server can do.
+- `opengrok_call` — dispatch any operation by name with a JSON payload. The
+  operation name must match an entry from `opengrok_discover`.
+
+Gateway mode is useful when the agent benefits from a single-call discovery
+contract instead of a large static tool list. It is experimental and may change
+in future releases. Gateway operations use the same capability rules as the full
+and compact surfaces; process-scoped memory operations are not registered over
+HTTP.
 
 File reads try `/api/v1/file/content` first, then fall back to authenticated
 `/raw/{project}/{path}` under `OPENGROK_MCP_WEB_BASE_URL`.
@@ -160,9 +215,8 @@ Avoid passing secrets as CLI flags. Use environment variables for OpenGrok auth 
   back to the default project. This can misattribute hits when project names overlap
   or when OpenGrok returns unexpected path formats.
 
-- **No retry or backoff on transient OpenGrok errors.** A flaky upstream will surface
-  errors directly to the agent on every failed call. Consider fronting the server with
-  a reverse proxy that handles retries if your OpenGrok instance is unstable.
+- **Retry behavior is built-in with configurable limits.** The server retries
+  transient OpenGrok errors automatically with backoff.
 
 - **MCP Go SDK is pre-1.0.** Breaking changes may occur on SDK upgrades. The pinned
   version is noted in `go.mod`; review release notes before upgrading.

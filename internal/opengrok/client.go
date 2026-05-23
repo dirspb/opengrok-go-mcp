@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +17,8 @@ import (
 type Mode string
 
 const (
-	maxResponseBytes = 32 << 20 // 32 MB
+	maxResponseBytes   = 32 << 20 // 32 MB
+	maxFileListEntries = 5000
 
 	ModeFullText   Mode = "full_text"
 	ModeDefinition Mode = "definition"
@@ -33,6 +35,12 @@ type Client struct {
 	apiToken       string
 	basicAuthToken string
 	debugLogf      func(string, ...any)
+	retryPolicy    *RetryPolicy
+}
+
+type RetryPolicy struct {
+	MaxAttempts int
+	BaseDelay   time.Duration
 }
 
 type Option func(*Client)
@@ -69,6 +77,12 @@ func WithDebug(enabled bool) Option {
 	}
 }
 
+func WithRetryPolicy(policy RetryPolicy) Option {
+	return func(c *Client) {
+		c.retryPolicy = &policy
+	}
+}
+
 func WithDebugLogger(logf func(string, ...any)) Option {
 	return func(c *Client) {
 		c.debugLogf = logf
@@ -99,6 +113,7 @@ type SearchRequest struct {
 	FileType   string
 	Limit      int
 	Offset     int
+	Sort       string
 }
 
 type SearchResult struct {
@@ -109,11 +124,100 @@ type SearchResult struct {
 }
 
 type Hit struct {
-	Project    string
-	FilePath   string
-	LineNumber int
-	Snippet    string
-	Tag        string
+	Project              string
+	FilePath             string
+	LineNumber           int
+	Snippet              *string
+	Tag                  string
+	AttributionUncertain bool
+	AttributionWarning   string
+	AttributionSource    string `json:"attribution_source,omitempty"`
+}
+
+type ProjectOverview struct {
+	Project      string
+	TotalFiles   int
+	TotalDirs    int
+	TopDirs      []FileEntry
+	TopFiles     []FileEntry
+	Description  string
+	TotalSymbols int
+	LastIndexed  string
+}
+
+type FileEntry struct {
+	Path            string `json:"path"`
+	NumLines        int    `json:"numLines"`
+	Loc             int    `json:"loc"`
+	Date            int64  `json:"date"`
+	Description     string `json:"description"`
+	PathDescription string `json:"pathDescription"`
+	IsDirectory     bool   `json:"isDirectory"`
+	Size            *int64 `json:"size"`
+}
+
+func (c *Client) ListFiles(ctx context.Context, project string, path string) ([]FileEntry, error) {
+	entries, _, err := c.ListFilesWithMetadata(ctx, project, path)
+	return entries, err
+}
+
+// ListFilesWithMetadata returns file entries and whether the server-side
+// safety cap omitted additional entries.
+func (c *Client) ListFilesWithMetadata(ctx context.Context, project string, path string) ([]FileEntry, bool, error) {
+	query := url.Values{}
+	fullPath := project
+	if path != "" {
+		fullPath = project + "/" + path
+	}
+	query.Set("path", fullPath)
+
+	body, err := c.do(ctx, "/list", query)
+	if err != nil {
+		return nil, false, fmt.Errorf("list files: %w", err)
+	}
+
+	var entries []FileEntry
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, false, fmt.Errorf("list files: decode response: %w", err)
+	}
+
+	truncated := false
+	if len(entries) > maxFileListEntries {
+		entries = entries[:maxFileListEntries]
+		truncated = true
+		c.logAPI("opengrok: file list truncated at %d entries for project %s", maxFileListEntries, project)
+	}
+
+	return entries, truncated, nil
+}
+
+func (c *Client) GetProjectOverview(ctx context.Context, project string) (ProjectOverview, error) {
+	entries, err := c.ListFiles(ctx, project, "")
+	if err != nil {
+		return ProjectOverview{}, fmt.Errorf("project overview: %w", err)
+	}
+
+	var overview ProjectOverview
+	overview.Project = project
+	overview.Description = fmt.Sprintf("Project %s overview", project)
+	projectPrefix := project + "/"
+
+	for _, entry := range entries {
+		rel := strings.TrimPrefix(entry.Path, projectPrefix)
+		if entry.IsDirectory {
+			overview.TotalDirs++
+			if !strings.Contains(rel, "/") {
+				overview.TopDirs = append(overview.TopDirs, entry)
+			}
+		} else {
+			overview.TotalFiles++
+			if !strings.Contains(rel, "/") {
+				overview.TopFiles = append(overview.TopFiles, entry)
+			}
+		}
+	}
+
+	return overview, nil
 }
 
 func (c *Client) ListProjects(ctx context.Context) ([]string, error) {
@@ -148,6 +252,9 @@ func (c *Client) Search(ctx context.Context, req SearchRequest) (SearchResult, e
 		query.Set("maxresults", strconv.Itoa(req.Limit))
 	}
 	query.Set("start", strconv.Itoa(req.Offset))
+	if req.Sort != "" {
+		query.Set("sort", req.Sort)
+	}
 
 	body, err := c.do(ctx, "/search", query)
 	if err != nil {
@@ -200,85 +307,141 @@ func (c *Client) do(ctx context.Context, path string, query url.Values) ([]byte,
 	if len(query) > 0 {
 		requestURL += "?" + query.Encode()
 	}
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	body, _, err := c.doGET(ctx, requestURL, path, "api")
 	if err != nil {
-		return nil, fmt.Errorf("create GET %s: %w", path, err)
+		return nil, err
 	}
-	c.addAuth(request)
-
-	start := time.Now()
-	c.logAPI("opengrok api request method=%s url=%s", request.Method, request.URL.Redacted())
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		c.logAPI(
-			"opengrok api error method=%s url=%s duration=%s error=%v",
-			request.Method,
-			request.URL.Redacted(),
-			time.Since(start),
-			err,
-		)
-		return nil, fmt.Errorf("GET %s: %w", path, err)
-	}
-	defer response.Body.Close()
-	c.logAPI(
-		"opengrok api response method=%s url=%s status=%s duration=%s",
-		request.Method,
-		request.URL.Redacted(),
-		response.Status,
-		time.Since(start),
-	)
-
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
-	if err != nil {
-		return nil, fmt.Errorf("GET %s: read response: %w", path, err)
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("GET %s: unexpected status %s", path, response.Status)
-	}
-
 	return body, nil
 }
 
 func (c *Client) doRaw(ctx context.Context, path string) ([]byte, error) {
 	requestURL := c.webBaseURL + path
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	body, _, err := c.doGET(ctx, requestURL, path, "web")
 	if err != nil {
-		return nil, fmt.Errorf("create GET %s: %w", path, err)
+		return nil, err
 	}
-	c.addAuth(request)
-
-	start := time.Now()
-	c.logAPI("opengrok web request method=%s url=%s", request.Method, request.URL.Redacted())
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		c.logAPI(
-			"opengrok web error method=%s url=%s duration=%s error=%v",
-			request.Method,
-			request.URL.Redacted(),
-			time.Since(start),
-			err,
-		)
-		return nil, fmt.Errorf("GET %s: %w", path, err)
-	}
-	defer response.Body.Close()
-	c.logAPI(
-		"opengrok web response method=%s url=%s status=%s duration=%s",
-		request.Method,
-		request.URL.Redacted(),
-		response.Status,
-		time.Since(start),
-	)
-
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
-	if err != nil {
-		return nil, fmt.Errorf("GET %s: read response: %w", path, err)
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("GET %s: unexpected status %s", path, response.Status)
-	}
-
 	return body, nil
+}
+
+// doGET is a status-aware GET helper with retry/backoff for transient failures.
+// It builds the request, adds auth, executes it, reads the capped body, and
+// returns the body, HTTP status code, and any error. Retryable errors include
+// transport errors, HTTP 429 (Too Many Requests), and HTTP 5xx. Non-retryable
+// 4xx statuses are returned immediately.
+func (c *Client) doGET(ctx context.Context, requestURL string, pathDesc string, logKind string) ([]byte, int, error) {
+	maxAttempts := 1
+	baseDelay := time.Duration(0)
+	if c.retryPolicy != nil {
+		maxAttempts = c.retryPolicy.MaxAttempts
+		baseDelay = c.retryPolicy.BaseDelay
+	}
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+
+	var lastBody []byte
+	var lastStatusCode int
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+		if err != nil {
+			return nil, 0, fmt.Errorf("create GET %s: %w", pathDesc, err)
+		}
+		c.addAuth(req)
+
+		start := time.Now()
+		c.logAPI("opengrok %s request method=%s url=%s", logKind, req.Method, req.URL.Redacted())
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			c.logAPI(
+				"opengrok %s error method=%s url=%s duration=%s error=%v",
+				logKind,
+				req.Method,
+				req.URL.Redacted(),
+				time.Since(start),
+				err,
+			)
+			lastStatusCode = 0
+			if attempt < maxAttempts {
+				c.logAPI(
+					"opengrok %s retry method=GET url=%s error=%v attempt=%d delay=%s",
+					logKind, req.URL.Redacted(), err, attempt+1, baseDelay,
+				)
+				if err := c.sleepWithContext(ctx, baseDelay, attempt); err != nil {
+					return nil, lastStatusCode, err
+				}
+				continue
+			}
+			return nil, lastStatusCode, fmt.Errorf("GET %s: %w", pathDesc, err)
+		}
+
+		c.logAPI(
+			"opengrok %s response method=%s url=%s status=%s duration=%s",
+			logKind,
+			req.Method,
+			req.URL.Redacted(),
+			resp.Status,
+			time.Since(start),
+		)
+
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, resp.StatusCode, fmt.Errorf("GET %s: read response: %w", pathDesc, readErr)
+		}
+
+		lastBody = body
+		lastStatusCode = resp.StatusCode
+
+		if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+			return body, resp.StatusCode, nil
+		}
+
+		if attempt < maxAttempts && isRetryableStatus(resp.StatusCode) {
+			c.logAPI(
+				"opengrok %s retry method=GET url=%s status=%s attempt=%d delay=%s",
+				logKind, req.URL.Redacted(), resp.Status, attempt+1, baseDelay,
+			)
+			if err := c.sleepWithContext(ctx, baseDelay, attempt); err != nil {
+				return body, resp.StatusCode, err
+			}
+			continue
+		}
+
+		return body, resp.StatusCode, fmt.Errorf("GET %s: unexpected status %s", pathDesc, resp.Status)
+	}
+
+	return lastBody, lastStatusCode, fmt.Errorf("GET %s: unexpected status code %d", pathDesc, lastStatusCode)
+}
+
+// sleepWithContext waits for an exponentially increasing delay while respecting
+// context cancellation. The delay is baseDelay * 2^(attempt-1).
+func (c *Client) sleepWithContext(ctx context.Context, baseDelay time.Duration, attempt int) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	delay := baseDelay * (1 << (attempt - 1))
+	if delay <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func isRetryableStatus(statusCode int) bool {
+	if statusCode == http.StatusTooManyRequests {
+		return true
+	}
+	if statusCode >= 500 && statusCode < 600 {
+		return true
+	}
+	return false
 }
 
 func (c *Client) logAPI(format string, args ...any) {
@@ -353,14 +516,22 @@ func (r searchResponse) toResult(projects []string, defaultProject string) Searc
 	}
 
 	for path, hits := range r.Results {
-		project, filePath := normalizePath(path, projects, defaultProject)
+		project, filePath, source, uncertain := normalizePath(path, projects, defaultProject)
+		var attributionWarning string
+		if uncertain {
+			attributionWarning = "OpenGrok result path did not match any requested project; pass an explicit project or narrow the query."
+		}
 		for _, hit := range hits {
+			snippet := hit.Line
 			result.Hits = append(result.Hits, Hit{
-				Project:    project,
-				FilePath:   filePath,
-				LineNumber: int(hit.LineNumber),
-				Snippet:    hit.Line,
-				Tag:        hit.Tag,
+				Project:              project,
+				FilePath:             filePath,
+				LineNumber:           int(hit.LineNumber),
+				Snippet:              &snippet,
+				Tag:                  hit.Tag,
+				AttributionUncertain: uncertain,
+				AttributionWarning:   attributionWarning,
+				AttributionSource:    source,
 			})
 		}
 	}
@@ -368,30 +539,34 @@ func (r searchResponse) toResult(projects []string, defaultProject string) Searc
 	return result
 }
 
-func normalizePath(path string, projects []string, defaultProject string) (string, string) {
+func normalizePath(path string, projects []string, defaultProject string) (string, string, string, bool) {
 	cleanPath := strings.TrimPrefix(path, "/")
-	for _, project := range projects {
+	orderedProjects := append([]string{}, projects...)
+	sort.SliceStable(orderedProjects, func(i, j int) bool {
+		return len(orderedProjects[i]) > len(orderedProjects[j])
+	})
+	for _, project := range orderedProjects {
 		prefix := project + "/"
 		if strings.HasPrefix(cleanPath, prefix) {
-			return project, strings.TrimPrefix(cleanPath, prefix)
+			return project, strings.TrimPrefix(cleanPath, prefix), "matched_prefix", false
 		}
 	}
 
 	if len(projects) == 0 {
 		if slash := strings.Index(cleanPath, "/"); slash > 0 && slash < len(cleanPath)-1 {
-			return cleanPath[:slash], cleanPath[slash+1:]
+			return cleanPath[:slash], cleanPath[slash+1:], "path_first_segment", false
 		}
+		if defaultProject != "" {
+			return defaultProject, cleanPath, "default_project_fallback", false
+		}
+		return "", cleanPath, "unknown", false
 	}
 
-	if defaultProject != "" {
-		return defaultProject, cleanPath
+	if len(projects) == 1 {
+		return projects[0], cleanPath, "first_project_fallback", false
 	}
 
-	if len(projects) > 0 {
-		return projects[0], cleanPath
-	}
-
-	return "", cleanPath
+	return "", cleanPath, "unknown", true
 }
 
 type flexibleLineNumber int

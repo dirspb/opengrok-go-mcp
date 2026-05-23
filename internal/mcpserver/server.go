@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -18,30 +19,59 @@ import (
 )
 
 const (
-	codeInvalidCursor   = "INVALID_CURSOR"
-	codeProjectRequired = "PROJECT_REQUIRED"
-	codeUnknownProject  = "UNKNOWN_PROJECT"
+	codeInvalidCursor        = "INVALID_CURSOR"
+	codeProjectRequired      = "PROJECT_REQUIRED"
+	codeUnknownProject       = "UNKNOWN_PROJECT"
+	codeUnknownOperation     = "UNKNOWN_OPERATION"
+	codeInvalidResponseMode  = "INVALID_RESPONSE_MODE"
+	codeInvalidContextBudget = "INVALID_CONTEXT_BUDGET"
 
 	defaultSearchMode = string(opengrok.ModeFullText)
 	defaultBefore     = 30
 	defaultAfter      = 60
 
-	filePageSize              = 500
-	projectsPageSize          = 50
-	searchWarnThreshold       = 500
-	listSymbolsWarnThreshold  = 100
+	filePageSize             = 500
+	projectsPageSize         = 50
+	searchWarnThreshold      = 500
+	listSymbolsWarnThreshold = 100
 )
 
 type Backend interface {
 	ListProjects(ctx context.Context) ([]string, error)
+	ListFiles(ctx context.Context, project string, path string) ([]opengrok.FileEntry, error)
 	Search(ctx context.Context, req opengrok.SearchRequest) (opengrok.SearchResult, error)
 	FileContent(ctx context.Context, project string, filePath string) (string, error)
+	GetProjectOverview(ctx context.Context, project string) (opengrok.ProjectOverview, error)
+}
+
+type fileListMetadataBackend interface {
+	ListFilesWithMetadata(ctx context.Context, project string, path string) ([]opengrok.FileEntry, bool, error)
+}
+
+func listFilesWithMetadata(
+	ctx context.Context,
+	backend Backend,
+	project string,
+	path string,
+) ([]opengrok.FileEntry, bool, error) {
+	if backend, ok := backend.(fileListMetadataBackend); ok {
+		return backend.ListFilesWithMetadata(ctx, project, path)
+	}
+
+	entries, err := backend.ListFiles(ctx, project, path)
+	return entries, false, err
 }
 
 type Service struct {
-	cfg     config.Config
-	backend Backend
-	links   links.Builder
+	cfg        config.Config
+	backend    Backend
+	links      links.Builder
+	memoryBank *MemoryBank
+}
+
+type gatewayOperation struct {
+	Manifest GatewayOperation
+	Call     func(context.Context, json.RawMessage) (any, error)
 }
 
 type Error struct {
@@ -64,10 +94,71 @@ func IsCode(err error, code string) bool {
 
 func NewService(cfg config.Config, backend Backend) *Service {
 	return &Service{
-		cfg:     cfg,
-		backend: backend,
-		links:   links.NewBuilder(cfg.OpenGrokWebBaseURL, cfg.EnableRawLinks),
+		cfg:        cfg,
+		backend:    backend,
+		links:      links.NewBuilder(cfg.OpenGrokWebBaseURL, cfg.EnableRawLinks),
+		memoryBank: NewMemoryBank(),
 	}
+}
+
+func (s *Service) MemorySet(ctx context.Context, input MemorySetInput) (MemorySetOutput, error) {
+	s.memoryBank.Set(input.Key, input.Value)
+	return MemorySetOutput{Success: true}, nil
+}
+
+func (s *Service) MemoryGet(ctx context.Context, input MemoryGetInput) (MemoryGetOutput, error) {
+	value, found := s.memoryBank.Get(input.Key)
+	return MemoryGetOutput{Value: value, Found: found}, nil
+}
+
+func (s *Service) MemoryList(ctx context.Context, input MemoryListInput) (MemoryListOutput, error) {
+	return MemoryListOutput{Entries: s.memoryBank.List()}, nil
+}
+
+func (s *Service) MemoryDelete(ctx context.Context, input MemoryDeleteInput) (MemoryDeleteOutput, error) {
+	_, found := s.memoryBank.Get(input.Key)
+	if found {
+		s.memoryBank.Delete(input.Key)
+	}
+	return MemoryDeleteOutput{Found: found, Deleted: found}, nil
+}
+
+func (s *Service) MemoryClear(ctx context.Context, input MemoryClearInput) (MemoryClearOutput, error) {
+	s.memoryBank.Clear()
+	return MemoryClearOutput{Success: true}, nil
+}
+
+func (s *Service) CompactMemory(ctx context.Context, input CompactMemoryInput) (any, error) {
+	switch input.Operation {
+	case "set":
+		var payload MemorySetInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("decode compact memory set payload: %w", err)
+		}
+		return s.MemorySet(ctx, payload)
+	case "get":
+		var payload MemoryGetInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("decode compact memory get payload: %w", err)
+		}
+		return s.MemoryGet(ctx, payload)
+	case "list":
+		return s.MemoryList(ctx, MemoryListInput{})
+	case "delete":
+		var payload MemoryDeleteInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("decode compact memory delete payload: %w", err)
+		}
+		return s.MemoryDelete(ctx, payload)
+	case "clear":
+		return s.MemoryClear(ctx, MemoryClearInput{})
+	default:
+		return nil, unknownOperationError(input.Operation, compactMemoryOperations())
+	}
+}
+
+func compactMemoryOperations() []string {
+	return []string{"set", "get", "list", "delete", "clear"}
 }
 
 func (s *Service) ListProjects(ctx context.Context, input ListProjectsInput) (ListProjectsOutput, error) {
@@ -129,6 +220,315 @@ func (s *Service) ListProjects(ctx context.Context, input ListProjectsInput) (Li
 	}, nil
 }
 
+func (s *Service) ListFiles(ctx context.Context, input ListFilesInput) (ListFilesOutput, error) {
+	projects, err := s.resolveProjects(input.Project, nil, false)
+	if err != nil {
+		return ListFilesOutput{}, err
+	}
+	project := projects[0]
+
+	offset := 0
+	pageSize := filePageSize
+	if input.PageSize > 0 {
+		pageSize = input.PageSize
+	}
+	if s.cfg.PageSizeMax > 0 && pageSize > s.cfg.PageSizeMax {
+		pageSize = s.cfg.PageSizeMax
+	}
+
+	if input.Cursor != nil && *input.Cursor != "" {
+		state, err := cursor.DecodeFileList(*input.Cursor)
+		if err != nil {
+			return ListFilesOutput{}, invalidCursorError()
+		}
+		if state.Project != project || state.Path != input.Path {
+			return ListFilesOutput{}, invalidCursorError()
+		}
+		offset = state.Offset
+		pageSize = state.PageSize
+		if s.cfg.PageSizeMax > 0 && pageSize > s.cfg.PageSizeMax {
+			pageSize = s.cfg.PageSizeMax
+		}
+	}
+
+	entries, truncated, err := listFilesWithMetadata(ctx, s.backend, project, input.Path)
+	if err != nil {
+		return ListFilesOutput{}, fmt.Errorf("list files: %w", err)
+	}
+
+	filtered := make([]opengrok.FileEntry, 0, len(entries))
+	for _, entry := range entries {
+		if input.Path == "" || strings.HasPrefix(entry.Path, input.Path+"/") || entry.Path == input.Path {
+			filtered = append(filtered, entry)
+		}
+	}
+
+	if input.Kind != nil {
+		kind := *input.Kind
+		switch kind {
+		case "file":
+			fileFiltered := make([]opengrok.FileEntry, 0, len(filtered))
+			for _, entry := range filtered {
+				if !entry.IsDirectory {
+					fileFiltered = append(fileFiltered, entry)
+				}
+			}
+			filtered = fileFiltered
+		case "directory":
+			dirFiltered := make([]opengrok.FileEntry, 0, len(filtered))
+			for _, entry := range filtered {
+				if entry.IsDirectory {
+					dirFiltered = append(dirFiltered, entry)
+				}
+			}
+			filtered = dirFiltered
+		case "both":
+			// keep all
+		default:
+			return ListFilesOutput{}, &Error{
+				Code:    "INVALID_KIND",
+				Message: fmt.Sprintf("Invalid kind %q; valid values: file, directory, both", kind),
+			}
+		}
+	}
+
+	total := len(filtered)
+	if offset > total {
+		offset = total
+	}
+	end := min(offset+pageSize, total)
+	page := filtered[offset:end]
+
+	includeLinks := s.includeLinks(input.IncludeLinks)
+
+	files := make([]FileItem, 0, len(page))
+	for _, entry := range page {
+		fileLinks := s.links.File(project, entry.Path, 0)
+		item := FileItem{
+			Project:     project,
+			Path:        entry.Path,
+			Name:        path.Base(entry.Path),
+			IsDirectory: entry.IsDirectory,
+			NumLines:    entry.NumLines,
+			Loc:         entry.Loc,
+			Size:        entry.Size,
+			Description: entry.Description,
+			ResourceURI: fileLinks.ResourceURI,
+		}
+		if includeLinks {
+			item.DisplayURL = fileLinks.DisplayURL
+		}
+		files = append(files, item)
+	}
+
+	var nextCursor *string
+	if offset+pageSize < total {
+		encoded, err := cursor.EncodeFileList(cursor.FileListState{
+			Project:  project,
+			Path:     input.Path,
+			Offset:   offset + pageSize,
+			PageSize: pageSize,
+		})
+		if err != nil {
+			return ListFilesOutput{}, fmt.Errorf("file list cursor: %w", err)
+		}
+		nextCursor = &encoded
+	}
+
+	var warning *string
+	if truncated {
+		value := "OpenGrok file listing was truncated at 5,000 entries; total_files and available pages are incomplete."
+		warning = &value
+	}
+
+	return ListFilesOutput{
+		Project:    project,
+		Path:       input.Path,
+		Files:      files,
+		TotalFiles: total,
+		PageSize:   pageSize,
+		NextCursor: nextCursor,
+		Truncated:  truncated,
+		Warning:    warning,
+	}, nil
+}
+
+func (s *Service) GetProjectOverview(ctx context.Context, input ProjectOverviewInput) (ProjectOverviewOutput, error) {
+	projects, err := s.resolveProjects(input.Project, nil, false)
+	if err != nil {
+		return ProjectOverviewOutput{}, err
+	}
+	project := projects[0]
+
+	entries, truncated, err := listFilesWithMetadata(ctx, s.backend, project, "")
+	if err != nil {
+		return ProjectOverviewOutput{}, fmt.Errorf("project overview: %w", err)
+	}
+
+	var totalFiles, totalDirs, totalLines int
+	type langAgg struct {
+		files int
+		lines int
+	}
+	langStats := make(map[string]langAgg)
+	projectPrefix := project + "/"
+
+	var topFilesEntries []opengrok.FileEntry
+	var topDirsEntries []opengrok.FileEntry
+
+	for _, entry := range entries {
+		rel := strings.TrimPrefix(entry.Path, projectPrefix)
+		if entry.IsDirectory {
+			totalDirs++
+			if !strings.Contains(rel, "/") {
+				topDirsEntries = append(topDirsEntries, entry)
+			}
+		} else {
+			totalFiles++
+			totalLines += entry.NumLines
+			if !strings.Contains(rel, "/") {
+				topFilesEntries = append(topFilesEntries, entry)
+			}
+
+			lang := detectLanguage(entry.Path)
+			agg := langStats[lang]
+			agg.files++
+			agg.lines += entry.NumLines
+			langStats[lang] = agg
+		}
+	}
+
+	languages := make([]LanguageStat, 0, len(langStats))
+	for lang, agg := range langStats {
+		var percent float64
+		if totalLines > 0 {
+			percent = float64(agg.lines) / float64(totalLines) * 100
+		}
+		languages = append(languages, LanguageStat{
+			Language: lang,
+			Files:    agg.files,
+			Lines:    agg.lines,
+			Percent:  percent,
+		})
+	}
+
+	sort.Slice(languages, func(i, j int) bool {
+		return languages[i].Percent > languages[j].Percent
+	})
+
+	topFiles := make([]FileItem, 0, len(topFilesEntries))
+	for _, f := range topFilesEntries {
+		topFiles = append(topFiles, FileItem{
+			Project:     project,
+			Path:        f.Path,
+			Name:        path.Base(f.Path),
+			IsDirectory: f.IsDirectory,
+			NumLines:    f.NumLines,
+			Loc:         f.Loc,
+			Size:        f.Size,
+			Description: f.Description,
+			ResourceURI: s.links.File(project, f.Path, 0).ResourceURI,
+		})
+	}
+
+	topDirs := make([]FileItem, 0, len(topDirsEntries))
+	for _, d := range topDirsEntries {
+		topDirs = append(topDirs, FileItem{
+			Project:     project,
+			Path:        d.Path,
+			Name:        path.Base(d.Path),
+			IsDirectory: true,
+			NumLines:    d.NumLines,
+			Loc:         d.Loc,
+			Size:        d.Size,
+			Description: d.Description,
+			ResourceURI: s.links.File(project, d.Path, 0).ResourceURI,
+		})
+	}
+
+	var warning *string
+	if truncated {
+		value := "OpenGrok file listing was truncated at 5,000 entries; project overview counts and language statistics are incomplete."
+		warning = &value
+	}
+
+	return ProjectOverviewOutput{
+		Project:     project,
+		TotalFiles:  totalFiles,
+		TotalDirs:   totalDirs,
+		TopDirs:     topDirs,
+		TopFiles:    topFiles,
+		Description: fmt.Sprintf("Project %s overview", project),
+		Truncated:   truncated,
+		Warning:     warning,
+		Languages:   languages,
+	}, nil
+}
+
+func detectLanguage(filePath string) string {
+	ext := strings.ToLower(path.Ext(filePath))
+	base := strings.ToLower(path.Base(filePath))
+
+	switch ext {
+	case ".go":
+		return "Go"
+	case ".java":
+		return "Java"
+	case ".py":
+		return "Python"
+	case ".js", ".ts", ".tsx":
+		return "JavaScript/TypeScript"
+	case ".c", ".h":
+		return "C"
+	case ".cpp", ".cc", ".hpp":
+		return "C++"
+	case ".rs":
+		return "Rust"
+	case ".rb":
+		return "Ruby"
+	case ".php":
+		return "PHP"
+	case ".swift":
+		return "Swift"
+	case ".kt":
+		return "Kotlin"
+	case ".scala":
+		return "Scala"
+	case ".md", ".markdown":
+		return "Markdown"
+	case ".yaml", ".yml":
+		return "YAML"
+	case ".json":
+		return "JSON"
+	case ".xml":
+		return "XML"
+	case ".sh", ".bash":
+		return "Shell"
+	case ".html", ".htm":
+		return "HTML"
+	case ".css", ".scss", ".less":
+		return "CSS"
+	case ".sql":
+		return "SQL"
+	case ".proto":
+		return "Protobuf"
+	case ".dockerfile":
+		return "Dockerfile"
+	case ".tf":
+		return "Terraform"
+	case ".makefile", ".mk":
+		return "Makefile"
+	default:
+		if base == "dockerfile" {
+			return "Dockerfile"
+		}
+		if base == "makefile" {
+			return "Makefile"
+		}
+		return "Other"
+	}
+}
+
 func (s *Service) SearchCode(ctx context.Context, input SearchCodeInput) (SearchOutput, error) {
 	mode := input.Mode
 	if mode == "" {
@@ -136,49 +536,357 @@ func (s *Service) SearchCode(ctx context.Context, input SearchCodeInput) (Search
 	}
 
 	return s.search(ctx, searchRequest{
-		project:       input.Project,
-		projects:      input.Projects,
-		query:         input.Query,
-		mode:          mode,
-		pathPrefix:    input.PathPrefix,
-		fileType:      input.FileType,
-		pageSize:      input.PageSize,
-		cursor:        cursorValue(input.Cursor),
-		includeLinks:  input.IncludeLinks,
-		expandContext: s.shouldExpandContext(input.ExpandContext),
+		project:          input.Project,
+		projects:         input.Projects,
+		query:            input.Query,
+		mode:             mode,
+		pathPrefix:       input.PathPrefix,
+		fileType:         input.FileType,
+		pageSize:         input.PageSize,
+		cursor:           cursorValue(input.Cursor),
+		includeLinks:     input.IncludeLinks,
+		includeSnippets:  input.IncludeSnippets,
+		maxHitsPerFile:   input.MaxHitsPerFile,
+		sort:             input.Sort,
+		expandContext:    s.shouldExpandContext(input.ExpandContext),
+		allowAllProjects: input.AllowAllProjects != nil && *input.AllowAllProjects,
+		responseMode:     input.ResponseMode,
+		contextBudget:    input.ContextBudget,
 	})
 }
 
 func (s *Service) SearchSymbolDefinitions(ctx context.Context, input SymbolSearchInput) (SearchOutput, error) {
 	return s.search(ctx, searchRequest{
-		project:       input.Project,
-		projects:      input.Projects,
-		query:         input.Symbol,
-		mode:          string(opengrok.ModeDefinition),
-		pageSize:      input.PageSize,
-		cursor:        cursorValue(input.Cursor),
-		includeLinks:  input.IncludeLinks,
-		symbol:        input.Symbol,
-		expandContext: s.shouldExpandContext(input.ExpandContext),
+		project:          input.Project,
+		projects:         input.Projects,
+		query:            input.Symbol,
+		mode:             string(opengrok.ModeDefinition),
+		pageSize:         input.PageSize,
+		cursor:           cursorValue(input.Cursor),
+		includeLinks:     input.IncludeLinks,
+		includeSnippets:  input.IncludeSnippets,
+		maxHitsPerFile:   input.MaxHitsPerFile,
+		sort:             input.Sort,
+		symbol:           input.Symbol,
+		expandContext:    s.shouldExpandContext(input.ExpandContext),
+		allowAllProjects: input.AllowAllProjects != nil && *input.AllowAllProjects,
+		responseMode:     input.ResponseMode,
+		contextBudget:    input.ContextBudget,
 	})
 }
 
 func (s *Service) SearchSymbolReferences(ctx context.Context, input SymbolSearchInput) (SearchOutput, error) {
 	return s.search(ctx, searchRequest{
-		project:       input.Project,
-		projects:      input.Projects,
-		query:         input.Symbol,
-		mode:          string(opengrok.ModeReference),
-		pageSize:      input.PageSize,
-		cursor:        cursorValue(input.Cursor),
-		includeLinks:  input.IncludeLinks,
-		symbol:        input.Symbol,
-		expandContext: s.shouldExpandContext(input.ExpandContext),
+		project:          input.Project,
+		projects:         input.Projects,
+		query:            input.Symbol,
+		mode:             string(opengrok.ModeReference),
+		pageSize:         input.PageSize,
+		cursor:           cursorValue(input.Cursor),
+		includeLinks:     input.IncludeLinks,
+		includeSnippets:  input.IncludeSnippets,
+		maxHitsPerFile:   input.MaxHitsPerFile,
+		sort:             input.Sort,
+		symbol:           input.Symbol,
+		expandContext:    s.shouldExpandContext(input.ExpandContext),
+		allowAllProjects: input.AllowAllProjects != nil && *input.AllowAllProjects,
+		responseMode:     input.ResponseMode,
+		contextBudget:    input.ContextBudget,
 	})
 }
 
+func (s *Service) SearchCrossProjectReferences(ctx context.Context, input CrossProjectReferencesInput) (CrossProjectReferencesOutput, error) {
+	symbolSearchInput := SymbolSearchInput{
+		Projects:         input.Projects,
+		Symbol:           input.Symbol,
+		PageSize:         input.PageSize,
+		Cursor:           input.Cursor,
+		IncludeLinks:     input.IncludeLinks,
+		ExpandContext:    input.ExpandContext,
+		MaxHitsPerFile:   input.MaxHitsPerFile,
+		Sort:             input.Sort,
+		AllowAllProjects: input.AllowAllProjects,
+		ResponseMode:     input.ResponseMode,
+		ContextBudget:    input.ContextBudget,
+	}
+	searchOutput, err := s.SearchSymbolReferences(ctx, symbolSearchInput)
+	if err != nil {
+		return CrossProjectReferencesOutput{}, err
+	}
+
+	groups := make([]ProjectReferenceGroup, 0)
+	groupMap := make(map[string]int)
+	for _, result := range searchOutput.Results {
+		idx, ok := groupMap[result.Project]
+		if !ok {
+			idx = len(groups)
+			groupMap[result.Project] = idx
+			groups = append(groups, ProjectReferenceGroup{
+				Project: result.Project,
+				Results: []Result{},
+			})
+		}
+		groups[idx].Results = append(groups[idx].Results, result)
+		groups[idx].Total++
+	}
+
+	return CrossProjectReferencesOutput{
+		Symbol:      input.Symbol,
+		Projects:    groups,
+		TotalHits:   searchOutput.TotalHits,
+		PageSize:    searchOutput.PageSize,
+		NextCursor:  searchOutput.NextCursor,
+		Warning:     searchOutput.Warning,
+		Diagnostics: searchOutput.Diagnostics,
+	}, nil
+}
+
+func (s *Service) SearchImplementations(ctx context.Context, input ImplementationSearchInput) (SearchOutput, error) {
+	symbolInput := SymbolSearchInput{
+		Project:          input.Project,
+		Projects:         input.Projects,
+		Symbol:           input.Symbol,
+		PageSize:         input.PageSize,
+		Cursor:           input.Cursor,
+		IncludeLinks:     input.IncludeLinks,
+		ExpandContext:    input.ExpandContext,
+		MaxHitsPerFile:   input.MaxHitsPerFile,
+		Sort:             input.Sort,
+		AllowAllProjects: input.AllowAllProjects,
+		ResponseMode:     input.ResponseMode,
+		ContextBudget:    input.ContextBudget,
+	}
+	output, err := s.SearchSymbolReferences(ctx, symbolInput)
+	if err != nil {
+		return output, err
+	}
+	warning := "OpenGrok does not provide language-semantic implementation mapping; results are candidate references from symbol usage."
+	output.Warning = &warning
+	// Results are best-effort candidate references, not exhaustive.
+	output.BestEffort = &[]bool{true}[0]
+	return output, nil
+}
+
+func (s *Service) SearchAndRead(ctx context.Context, input SearchAndReadInput) (SearchAndReadOutput, error) {
+	mode := input.Mode
+	if mode == "" {
+		mode = defaultSearchMode
+	}
+
+	searchOutput, err := s.search(ctx, searchRequest{
+		project:          input.Project,
+		projects:         input.Projects,
+		query:            input.Query,
+		mode:             mode,
+		pathPrefix:       input.PathPrefix,
+		fileType:         input.FileType,
+		pageSize:         input.PageSize,
+		cursor:           cursorValue(input.Cursor),
+		includeLinks:     input.IncludeLinks,
+		includeSnippets:  input.IncludeSnippets,
+		maxHitsPerFile:   0,
+		sort:             "",
+		expandContext:    false,
+		allowAllProjects: input.AllowAllProjects != nil && *input.AllowAllProjects,
+		responseMode:     input.ResponseMode,
+		contextBudget:    input.ContextBudget,
+	})
+	if err != nil {
+		return SearchAndReadOutput{}, err
+	}
+
+	budget, err := s.resolveBudgetTier(input.ContextBudget)
+	if err != nil {
+		return SearchAndReadOutput{}, err
+	}
+
+	before := input.LinesBefore
+	if before == 0 {
+		before = budget.ContextBefore
+	}
+	after := input.LinesAfter
+	if after == 0 {
+		after = budget.ContextAfter
+	}
+
+	results := searchOutput.Results
+	if input.MaxResults > 0 && len(results) > input.MaxResults {
+		results = results[:input.MaxResults]
+	}
+
+	readResults := make([]SearchAndReadResult, 0, len(results))
+	failedReads := 0
+	for _, result := range results {
+		content, err := s.backend.FileContent(ctx, result.Project, result.FilePath)
+		if err != nil {
+			failedReads++
+			continue
+		}
+		window := extractWindow(content, result.LineNumber, before, after)
+		readResults = append(readResults, SearchAndReadResult{
+			ResultID:    result.ResultID,
+			Project:     result.Project,
+			FilePath:    result.FilePath,
+			LineNumber:  result.LineNumber,
+			Kind:        result.Kind,
+			Symbol:      result.Symbol,
+			Snippet:     result.Snippet,
+			Content:     window.Content,
+			StartLine:   window.StartLine,
+			EndLine:     window.EndLine,
+			Citation:    result.Citation,
+			ResourceURI: result.ResourceURI,
+		})
+	}
+
+	var warning *string
+	if failedReads > 0 {
+		w := fmt.Sprintf("Failed to read %d result files; results may be incomplete.", failedReads)
+		warning = &w
+	}
+	if searchOutput.Warning != nil {
+		if warning != nil {
+			combined := *warning + " " + *searchOutput.Warning
+			warning = &combined
+		} else {
+			warning = searchOutput.Warning
+		}
+	}
+
+	return SearchAndReadOutput{
+		Project:     searchOutput.Project,
+		Mode:        searchOutput.Mode,
+		Query:       searchOutput.Query,
+		TotalHits:   searchOutput.TotalHits,
+		Results:     readResults,
+		PageSize:    searchOutput.PageSize,
+		NextCursor:  searchOutput.NextCursor,
+		Warning:     warning,
+		Diagnostics: searchOutput.Diagnostics,
+	}, nil
+}
+
+func (s *Service) FindSymbolAndReferences(ctx context.Context, input FindSymbolAndReferencesInput) (FindSymbolAndReferencesOutput, error) {
+	budget, err := s.resolveBudgetTier(input.ContextBudget)
+	if err != nil {
+		return FindSymbolAndReferencesOutput{}, err
+	}
+
+	defOutput, err := s.SearchSymbolDefinitions(ctx, SymbolSearchInput{
+		Project:          input.Project,
+		Projects:         input.Projects,
+		Symbol:           input.Symbol,
+		IncludeLinks:     input.IncludeLinks,
+		IncludeSnippets:  input.IncludeSnippets,
+		AllowAllProjects: input.AllowAllProjects,
+		ResponseMode:     input.ResponseMode,
+		ContextBudget:    input.ContextBudget,
+	})
+	if err != nil {
+		return FindSymbolAndReferencesOutput{}, err
+	}
+
+	var definition *SearchAndReadResult
+	if len(defOutput.Results) > 0 {
+		defResult := defOutput.Results[0]
+		content, err := s.backend.FileContent(ctx, defResult.Project, defResult.FilePath)
+		if err == nil {
+			window := extractWindow(content, defResult.LineNumber, budget.ContextBefore, budget.ContextAfter)
+			definition = &SearchAndReadResult{
+				ResultID:    defResult.ResultID,
+				Project:     defResult.Project,
+				FilePath:    defResult.FilePath,
+				LineNumber:  defResult.LineNumber,
+				Kind:        defResult.Kind,
+				Symbol:      defResult.Symbol,
+				Snippet:     defResult.Snippet,
+				Content:     window.Content,
+				StartLine:   window.StartLine,
+				EndLine:     window.EndLine,
+				Citation:    defResult.Citation,
+				ResourceURI: defResult.ResourceURI,
+			}
+		}
+	}
+
+	refOutput, err := s.SearchSymbolReferences(ctx, SymbolSearchInput{
+		Project:          input.Project,
+		Projects:         input.Projects,
+		Symbol:           input.Symbol,
+		IncludeLinks:     input.IncludeLinks,
+		IncludeSnippets:  input.IncludeSnippets,
+		AllowAllProjects: input.AllowAllProjects,
+		ResponseMode:     input.ResponseMode,
+		ContextBudget:    input.ContextBudget,
+	})
+	if err != nil {
+		return FindSymbolAndReferencesOutput{}, err
+	}
+
+	var warning *string
+	if definition == nil {
+		w := fmt.Sprintf("No definition found for symbol %q.", input.Symbol)
+		warning = &w
+	}
+	if refOutput.Warning != nil {
+		if warning != nil {
+			combined := *warning + " " + *refOutput.Warning
+			warning = &combined
+		} else {
+			warning = refOutput.Warning
+		}
+	}
+
+	return FindSymbolAndReferencesOutput{
+		Symbol:      input.Symbol,
+		Definition:  definition,
+		References:  refOutput.Results,
+		TotalRefs:   refOutput.TotalHits,
+		PageSize:    refOutput.PageSize,
+		NextCursor:  refOutput.NextCursor,
+		Warning:     warning,
+		Diagnostics: refOutput.Diagnostics,
+	}, nil
+}
+
+func (s *Service) CompactCompound(ctx context.Context, input CompactCompoundInput) (any, error) {
+	switch input.Operation {
+	case "search_and_read":
+		if !s.cfg.Capabilities.SearchCode || !s.cfg.Capabilities.GetFileContext {
+			return nil, unknownOperationError(input.Operation, compactCompoundOperations(s.cfg))
+		}
+		var payload SearchAndReadInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("decode compact compound search_and_read payload: %w", err)
+		}
+		return s.SearchAndRead(ctx, payload)
+	case "find_symbol_and_references":
+		if !s.cfg.Capabilities.SearchSymbolDefinitions || !s.cfg.Capabilities.SearchSymbolReferences || !s.cfg.Capabilities.GetFileContext {
+			return nil, unknownOperationError(input.Operation, compactCompoundOperations(s.cfg))
+		}
+		var payload FindSymbolAndReferencesInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("decode compact compound find_symbol_and_references payload: %w", err)
+		}
+		return s.FindSymbolAndReferences(ctx, payload)
+	default:
+		return nil, unknownOperationError(input.Operation, compactCompoundOperations(s.cfg))
+	}
+}
+
+func compactCompoundOperations(cfg config.Config) []string {
+	operations := []string{}
+	if cfg.Capabilities.SearchCode {
+		operations = append(operations, "search_and_read")
+	}
+	if cfg.Capabilities.SearchSymbolDefinitions && cfg.Capabilities.SearchSymbolReferences {
+		operations = append(operations, "find_symbol_and_references")
+	}
+	return operations
+}
+
 func (s *Service) ListSymbols(ctx context.Context, input ListSymbolsInput) (ListSymbolsOutput, error) {
-	projects, err := s.resolveSearchProjects(input.Project, input.Projects)
+	projects, err := s.resolveSearchProjects(input.Project, input.Projects, false)
 	if err != nil {
 		return ListSymbolsOutput{Symbols: []SymbolItem{}}, err
 	}
@@ -226,6 +934,7 @@ func (s *Service) ListSymbols(ctx context.Context, input ListSymbolsInput) (List
 	}
 
 	hits := result.Hits
+	var filteredTotalHits *int
 	if input.Kind != "" {
 		filtered := make([]opengrok.Hit, 0, len(hits))
 		for _, h := range hits {
@@ -233,6 +942,8 @@ func (s *Service) ListSymbols(ctx context.Context, input ListSymbolsInput) (List
 				filtered = append(filtered, h)
 			}
 		}
+		count := len(filtered)
+		filteredTotalHits = &count
 		hits = filtered
 	}
 
@@ -255,8 +966,7 @@ func (s *Service) ListSymbols(ctx context.Context, input ListSymbolsInput) (List
 			ResourceURI: fileLinks.ResourceURI,
 		}
 		if includeSnippets {
-			snippet := h.Snippet
-			item.Snippet = &snippet
+			item.Snippet = h.Snippet
 		}
 		if includeLinks {
 			item.DisplayURL = fileLinks.DisplayURL
@@ -289,18 +999,30 @@ func (s *Service) ListSymbols(ctx context.Context, input ListSymbolsInput) (List
 	}
 
 	return ListSymbolsOutput{
-		Symbols:    symbols,
-		TotalHits:  result.TotalHits,
-		PageSize:   pageSize,
-		NextCursor: nextCursor,
-		Warning:    warning,
+		Symbols:           symbols,
+		TotalHits:         result.TotalHits,
+		FilteredTotalHits: filteredTotalHits,
+		PageSize:          pageSize,
+		NextCursor:        nextCursor,
+		Warning:           warning,
 	}, nil
 }
 
 func (s *Service) GetFileContext(ctx context.Context, input FileContextInput) (FileContextOutput, error) {
-	projects, err := s.resolveProjects(input.Project, nil)
+	projects, err := s.resolveProjects(input.Project, nil, false)
 	if err != nil {
 		return FileContextOutput{}, err
+	}
+
+	budget, err := s.resolveBudgetTier(input.ContextBudget)
+	if err != nil {
+		return FileContextOutput{}, err
+	}
+	if input.Before == 0 {
+		input.Before = budget.ContextBefore
+	}
+	if input.After == 0 {
+		input.After = budget.ContextAfter
 	}
 
 	content, err := s.backend.FileContent(ctx, projects[0], input.FilePath)
@@ -312,6 +1034,129 @@ func (s *Service) GetFileContext(ctx context.Context, input FileContextInput) (F
 		return s.windowedFileContext(projects[0], content, input)
 	}
 	return s.pagedFileContext(projects[0], content, input)
+}
+
+func (s *Service) CompactSearch(ctx context.Context, input CompactSearchInput) (SearchOutput, error) {
+	switch input.Operation {
+	case "code":
+		if !s.cfg.Capabilities.SearchCode {
+			return SearchOutput{}, unknownOperationError(input.Operation, compactSearchOperations(s.cfg))
+		}
+		var payload SearchCodeInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return SearchOutput{}, fmt.Errorf("decode compact search code payload: %w", err)
+		}
+		return s.SearchCode(ctx, payload)
+	case "definitions":
+		if !s.cfg.Capabilities.SearchSymbolDefinitions {
+			return SearchOutput{}, unknownOperationError(input.Operation, compactSearchOperations(s.cfg))
+		}
+		var payload SymbolSearchInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return SearchOutput{}, fmt.Errorf("decode compact search definitions payload: %w", err)
+		}
+		return s.SearchSymbolDefinitions(ctx, payload)
+	case "references":
+		if !s.cfg.Capabilities.SearchSymbolReferences {
+			return SearchOutput{}, unknownOperationError(input.Operation, compactSearchOperations(s.cfg))
+		}
+		var payload SymbolSearchInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return SearchOutput{}, fmt.Errorf("decode compact search references payload: %w", err)
+		}
+		return s.SearchSymbolReferences(ctx, payload)
+	default:
+		return SearchOutput{}, unknownOperationError(input.Operation, compactSearchOperations(s.cfg))
+	}
+}
+
+func (s *Service) CompactSymbols(ctx context.Context, input CompactSymbolsInput) (any, error) {
+	switch input.Operation {
+	case "list":
+		if !s.cfg.Capabilities.ListSymbols {
+			return nil, unknownOperationError(input.Operation, compactSymbolsOperations(s.cfg))
+		}
+		var payload ListSymbolsInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("decode compact symbols list payload: %w", err)
+		}
+		return s.ListSymbols(ctx, payload)
+	case "implementations":
+		if !s.cfg.Capabilities.SearchSymbolReferences {
+			return nil, unknownOperationError(input.Operation, compactSymbolsOperations(s.cfg))
+		}
+		var payload ImplementationSearchInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("decode compact symbols implementations payload: %w", err)
+		}
+		return s.SearchImplementations(ctx, payload)
+	case "cross_project_references":
+		if !s.cfg.Capabilities.SearchSymbolReferences {
+			return nil, unknownOperationError(input.Operation, compactSymbolsOperations(s.cfg))
+		}
+		var payload CrossProjectReferencesInput
+		if err := json.Unmarshal(input.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("decode compact symbols cross_project_references payload: %w", err)
+		}
+		return s.SearchCrossProjectReferences(ctx, payload)
+	default:
+		return nil, unknownOperationError(input.Operation, compactSymbolsOperations(s.cfg))
+	}
+}
+
+func (s *Service) CompactRead(ctx context.Context, input CompactReadInput) (FileContextOutput, error) {
+	if input.Operation != "file" && input.Operation != "context" {
+		return FileContextOutput{}, unknownOperationError(input.Operation, compactReadOperations(s.cfg))
+	}
+	if !s.cfg.Capabilities.GetFileContext {
+		return FileContextOutput{}, unknownOperationError(input.Operation, compactReadOperations(s.cfg))
+	}
+
+	var payload FileContextInput
+	if err := json.Unmarshal(input.Payload, &payload); err != nil {
+		return FileContextOutput{}, fmt.Errorf("decode compact read %s payload: %w", input.Operation, err)
+	}
+	return s.GetFileContext(ctx, payload)
+}
+
+func compactSearchOperations(cfg config.Config) []string {
+	operations := []string{}
+	if cfg.Capabilities.SearchCode {
+		operations = append(operations, "code")
+	}
+	if cfg.Capabilities.SearchSymbolDefinitions {
+		operations = append(operations, "definitions")
+	}
+	if cfg.Capabilities.SearchSymbolReferences {
+		operations = append(operations, "references")
+	}
+	return operations
+}
+
+func compactSymbolsOperations(cfg config.Config) []string {
+	operations := []string{}
+	if cfg.Capabilities.ListSymbols {
+		operations = append(operations, "list")
+	}
+	if cfg.Capabilities.SearchSymbolReferences {
+		operations = append(operations, "implementations")
+		operations = append(operations, "cross_project_references")
+	}
+	return operations
+}
+
+func compactReadOperations(cfg config.Config) []string {
+	if !cfg.Capabilities.GetFileContext {
+		return []string{}
+	}
+	return []string{"file", "context"}
+}
+
+func unknownOperationError(operation string, enabled []string) error {
+	return &Error{
+		Code:    codeUnknownOperation,
+		Message: fmt.Sprintf("Unknown operation %q; enabled operations: %s.", operation, strings.Join(enabled, ", ")),
+	}
 }
 
 func (s *Service) windowedFileContext(project string, content string, input FileContextInput) (FileContextOutput, error) {
@@ -360,10 +1205,10 @@ func (s *Service) pagedFileContext(project string, content string, input FileCon
 
 	if totalLines == 0 {
 		return FileContextOutput{
-			Project:    project,
-			FilePath:   input.FilePath,
-			TotalLines: 0,
-			Content:    "",
+			Project:     project,
+			FilePath:    input.FilePath,
+			TotalLines:  0,
+			Content:     "",
 			ResourceURI: s.links.File(project, input.FilePath, 0).ResourceURI,
 		}, nil
 	}
@@ -432,6 +1277,23 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		Name:    "opengrok-go-mcp",
 		Version: version,
 	}, nil)
+
+	switch cfg.ToolSurface {
+	case config.ToolSurfaceCompact:
+		registerCompactTools(server, service, cfg)
+		registerResources(server, service, cfg)
+	case config.ToolSurfaceGateway:
+		registerGatewayTools(server, service, cfg)
+		registerResources(server, service, cfg)
+	default:
+		registerFullTools(server, service, cfg)
+		registerResources(server, service, cfg)
+	}
+
+	return server
+}
+
+func registerFullTools(server *mcp.Server, service *Service, cfg config.Config) {
 	readOnlyAnnotations := &mcp.ToolAnnotations{ReadOnlyHint: true}
 
 	if cfg.Capabilities.ListProjects {
@@ -443,20 +1305,6 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 			output, err := service.ListProjects(ctx, input)
 			return nil, output, err
 		})
-		server.AddResource(&mcp.Resource{
-			URI:         "opengrok://projects",
-			Name:        "projects",
-			Title:       "OpenGrok projects",
-			Description: "Indexed OpenGrok projects.",
-			MIMEType:    "application/json",
-		}, service.projectsResource)
-		server.AddResourceTemplate(&mcp.ResourceTemplate{
-			URITemplate: "opengrok://project/{project}",
-			Name:        "project",
-			Title:       "OpenGrok project",
-			Description: "OpenGrok project metadata.",
-			MIMEType:    "application/json",
-		}, service.projectResource)
 	}
 	if cfg.Capabilities.SearchCode {
 		mcp.AddTool(server, &mcp.Tool{
@@ -465,6 +1313,15 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 			Annotations: readOnlyAnnotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input SearchCodeInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.SearchCode(ctx, input)
+			return nil, output, err
+		})
+	}
+	if cfg.Capabilities.SearchCode && cfg.Capabilities.GetFileContext {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "search_and_read",
+			Description: "Search OpenGrok and read the file content around each match in a single call. Reduces round trips for exploratory searches.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input SearchAndReadInput) (*mcp.CallToolResult, SearchAndReadOutput, error) {
+			output, err := service.SearchAndRead(ctx, input)
 			return nil, output, err
 		})
 	}
@@ -488,6 +1345,15 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 			return nil, output, err
 		})
 	}
+	if cfg.Capabilities.SearchSymbolDefinitions && cfg.Capabilities.SearchSymbolReferences && cfg.Capabilities.GetFileContext {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "find_symbol_and_references",
+			Description: "Find a symbol's definition and all its references in a single call. Returns the definition with surrounding context plus a paginated reference list.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input FindSymbolAndReferencesInput) (*mcp.CallToolResult, FindSymbolAndReferencesOutput, error) {
+			output, err := service.FindSymbolAndReferences(ctx, input)
+			return nil, output, err
+		})
+	}
 	if cfg.Capabilities.GetFileContext {
 		readFile := func(ctx context.Context, req *mcp.CallToolRequest, input FileContextInput) (*mcp.CallToolResult, FileContextOutput, error) {
 			output, err := service.GetFileContext(ctx, input)
@@ -503,13 +1369,6 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 			Description: "Read full file content from OpenGrok. Returns up to 500 lines per call; if truncated is true, pass next_cursor to read the next section. total_lines is always returned. Use project and file_path from search results; omit project otherwise unless the user explicitly names one. Do not use WebFetch on display_url/raw_url; this tool sends configured auth and falls back to /raw. For a targeted line window use get_file_context with line_number. When summarizing a class or file, include citation.url in the final answer.",
 			Annotations: readOnlyAnnotations,
 		}, readFile)
-		server.AddResourceTemplate(&mcp.ResourceTemplate{
-			URITemplate: "opengrok://project/{project}/files/{+path}",
-			Name:        "file",
-			Title:       "OpenGrok file",
-			Description: "OpenGrok file contents.",
-			MIMEType:    "application/json",
-		}, service.fileResource)
 	}
 
 	if cfg.Capabilities.ListSymbols {
@@ -523,7 +1382,506 @@ func NewMCPServer(cfg config.Config, backend Backend, version string) *mcp.Serve
 		})
 	}
 
-	return server
+	if cfg.Capabilities.ListFiles {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "list_files",
+			Description: "List files in an OpenGrok project directory. Results are paginated; use page_size to control page size and next_cursor for subsequent pages.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input ListFilesInput) (*mcp.CallToolResult, ListFilesOutput, error) {
+			output, err := service.ListFiles(ctx, input)
+			return nil, output, err
+		})
+	}
+
+	if cfg.Capabilities.ListProjects || cfg.Capabilities.ListFiles {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "get_project_overview",
+			Description: "Get a high-level overview of an OpenGrok project: total file/directory counts and top-level directory and file entries.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input ProjectOverviewInput) (*mcp.CallToolResult, ProjectOverviewOutput, error) {
+			output, err := service.GetProjectOverview(ctx, input)
+			return nil, output, err
+		})
+	}
+
+	if cfg.Capabilities.SearchSymbolReferences {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "search_implementations",
+			Description: "Search candidate implementations and usages of a symbol. Delegates to symbol-reference search; results are best-effort since OpenGrok does not provide language-semantic implementation mapping.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input ImplementationSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
+			output, err := service.SearchImplementations(ctx, input)
+			return nil, output, err
+		})
+
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "search_cross_project_references",
+			Description: "Search for references to a symbol across multiple projects, grouped by project for cross-project analysis.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input CrossProjectReferencesInput) (*mcp.CallToolResult, CrossProjectReferencesOutput, error) {
+			output, err := service.SearchCrossProjectReferences(ctx, input)
+			return nil, output, err
+		})
+	}
+
+	if memoryToolsEnabled(cfg) {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "memory_set",
+			Description: "Store a key-value pair in the server's memory bank. Values persist for the lifetime of the server process.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemorySetInput) (*mcp.CallToolResult, MemorySetOutput, error) {
+			output, err := service.MemorySet(ctx, input)
+			return nil, output, err
+		})
+
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "memory_get",
+			Description: "Retrieve a value from the memory bank by key.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemoryGetInput) (*mcp.CallToolResult, MemoryGetOutput, error) {
+			output, err := service.MemoryGet(ctx, input)
+			return nil, output, err
+		})
+
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "memory_list",
+			Description: "List all entries in the memory bank.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemoryListInput) (*mcp.CallToolResult, MemoryListOutput, error) {
+			output, err := service.MemoryList(ctx, input)
+			return nil, output, err
+		})
+
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "memory_delete",
+			Description: "Delete a key from the memory bank.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemoryDeleteInput) (*mcp.CallToolResult, MemoryDeleteOutput, error) {
+			output, err := service.MemoryDelete(ctx, input)
+			return nil, output, err
+		})
+
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "memory_clear",
+			Description: "Clear all entries from the memory bank.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input MemoryClearInput) (*mcp.CallToolResult, MemoryClearOutput, error) {
+			output, err := service.MemoryClear(ctx, input)
+			return nil, output, err
+		})
+	}
+}
+
+func registerCompactTools(server *mcp.Server, service *Service, cfg config.Config) {
+	if cfg.Capabilities.ListProjects {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "opengrok_projects",
+			Description: "List indexed OpenGrok projects. Results are paginated; pass next_cursor to retrieve subsequent pages.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input ListProjectsInput) (*mcp.CallToolResult, ListProjectsOutput, error) {
+			output, err := service.ListProjects(ctx, input)
+			return nil, output, err
+		})
+	}
+
+	if cfg.Capabilities.SearchCode || cfg.Capabilities.SearchSymbolDefinitions || cfg.Capabilities.SearchSymbolReferences {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "opengrok_search",
+			Description: "Search OpenGrok code and symbols. operation=code searches text/path/history/definition/reference; operation=definitions finds symbol definitions; operation=references finds symbol references. Payload is the selected operation's input object.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
+			output, err := service.CompactSearch(ctx, input)
+			return nil, output, err
+		})
+	}
+
+	if cfg.Capabilities.ListSymbols || cfg.Capabilities.SearchSymbolReferences {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "opengrok_symbols",
+			Description: "Work with OpenGrok symbols. operation=list lists symbols (requires list_symbols capability); operation=implementations finds candidate implementations of a symbol; operation=cross_project_references finds references across projects. Each operation payload matches the corresponding full tool input.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactSymbolsInput) (*mcp.CallToolResult, any, error) {
+			output, err := service.CompactSymbols(ctx, input)
+			return nil, output, err
+		})
+	}
+
+	if cfg.Capabilities.GetFileContext {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "opengrok_read",
+			Description: "Read OpenGrok files or line windows. operation=file and operation=context both use a file-context payload.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactReadInput) (*mcp.CallToolResult, FileContextOutput, error) {
+			output, err := service.CompactRead(ctx, input)
+			return nil, output, err
+		})
+	}
+
+	if cfg.Capabilities.GetFileContext &&
+		(cfg.Capabilities.SearchCode || (cfg.Capabilities.SearchSymbolDefinitions && cfg.Capabilities.SearchSymbolReferences)) {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "opengrok_compound",
+			Description: "Compound OpenGrok operations. operation=search_and_read searches and reads file content around matches; operation=find_symbol_and_references finds a symbol's definition and references. Each operation payload matches the corresponding full tool input.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactCompoundInput) (*mcp.CallToolResult, any, error) {
+			output, err := service.CompactCompound(ctx, input)
+			return nil, output, err
+		})
+	}
+
+	if memoryToolsEnabled(cfg) {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "opengrok_memory",
+			Description: "Interact with the server's process-scoped memory bank. Available only for stdio servers with memory enabled.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactMemoryInput) (*mcp.CallToolResult, any, error) {
+			output, err := service.CompactMemory(ctx, input)
+			return nil, output, err
+		})
+	}
+}
+
+func buildGatewayRegistry(service *Service, cfg config.Config) map[string]gatewayOperation {
+	registry := make(map[string]gatewayOperation)
+
+	if cfg.Capabilities.ListProjects {
+		registry["projects.list"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "projects.list",
+				Description: "List indexed OpenGrok projects.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input ListProjectsInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.ListProjects(ctx, input)
+			},
+		}
+
+		registry["project.overview"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "project.overview",
+				Description: "Get project overview with file and directory counts.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input ProjectOverviewInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.GetProjectOverview(ctx, input)
+			},
+		}
+	}
+
+	if cfg.Capabilities.SearchCode {
+		registry["search.code"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "search.code",
+				Description: "Search code in OpenGrok (full-text, path, history, definition, or reference).",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input SearchCodeInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.SearchCode(ctx, input)
+			},
+		}
+	}
+
+	if cfg.Capabilities.SearchSymbolDefinitions {
+		registry["search.definitions"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "search.definitions",
+				Description: "Search symbol definitions in OpenGrok.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input SymbolSearchInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.SearchSymbolDefinitions(ctx, input)
+			},
+		}
+	}
+
+	if cfg.Capabilities.SearchSymbolReferences {
+		registry["search.references"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "search.references",
+				Description: "Search symbol references in OpenGrok.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input SymbolSearchInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.SearchSymbolReferences(ctx, input)
+			},
+		}
+	}
+
+	if cfg.Capabilities.ListSymbols {
+		registry["symbols.list"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "symbols.list",
+				Description: "List symbol definitions in OpenGrok, optionally filtered by kind and path.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input ListSymbolsInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.ListSymbols(ctx, input)
+			},
+		}
+	}
+
+	if cfg.Capabilities.ListFiles {
+		registry["files.list"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "files.list",
+				Description: "List files in an OpenGrok project directory.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input ListFilesInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.ListFiles(ctx, input)
+			},
+		}
+	}
+
+	if cfg.Capabilities.SearchSymbolReferences {
+		registry["search.implementations"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "search.implementations",
+				Description: "Search candidate implementations and usages of a symbol.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input ImplementationSearchInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.SearchImplementations(ctx, input)
+			},
+		}
+
+		registry["search.cross_project_references"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "search.cross_project_references",
+				Description: "Search symbol references across multiple projects.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input CrossProjectReferencesInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.SearchCrossProjectReferences(ctx, input)
+			},
+		}
+	}
+
+	if cfg.Capabilities.GetFileContext {
+		registry["file.read"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "file.read",
+				Description: "Read full file content from OpenGrok.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input FileContextInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.GetFileContext(ctx, input)
+			},
+		}
+
+		registry["file.context"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "file.context",
+				Description: "Read a line window around a specific line number in a file.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input FileContextInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.GetFileContext(ctx, input)
+			},
+		}
+	}
+
+	if cfg.Capabilities.SearchCode && cfg.Capabilities.GetFileContext {
+		registry["compound.search_and_read"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "compound.search_and_read",
+				Description: "Search OpenGrok and read the file content around each match in a single call.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input SearchAndReadInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.SearchAndRead(ctx, input)
+			},
+		}
+	}
+
+	if cfg.Capabilities.SearchSymbolDefinitions && cfg.Capabilities.SearchSymbolReferences && cfg.Capabilities.GetFileContext {
+		registry["compound.find_symbol_and_references"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "compound.find_symbol_and_references",
+				Description: "Find a symbol's definition and all its references in a single call.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input FindSymbolAndReferencesInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.FindSymbolAndReferences(ctx, input)
+			},
+		}
+	}
+
+	if memoryToolsEnabled(cfg) {
+		registry["memory.set"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "memory.set",
+				Description: "Store a key-value pair in the server's memory bank.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input MemorySetInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.MemorySet(ctx, input)
+			},
+		}
+
+		registry["memory.get"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "memory.get",
+				Description: "Retrieve a value from the memory bank by key.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input MemoryGetInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.MemoryGet(ctx, input)
+			},
+		}
+
+		registry["memory.list"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "memory.list",
+				Description: "List all entries in the memory bank.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				return service.MemoryList(ctx, MemoryListInput{})
+			},
+		}
+
+		registry["memory.delete"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "memory.delete",
+				Description: "Delete a key from the memory bank.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				var input MemoryDeleteInput
+				if err := json.Unmarshal(raw, &input); err != nil {
+					return nil, fmt.Errorf("decode payload: %w", err)
+				}
+				return service.MemoryDelete(ctx, input)
+			},
+		}
+
+		registry["memory.clear"] = gatewayOperation{
+			Manifest: GatewayOperation{
+				Name:        "memory.clear",
+				Description: "Clear all entries from the memory bank.",
+			},
+			Call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				return service.MemoryClear(ctx, MemoryClearInput{})
+			},
+		}
+	}
+
+	return registry
+}
+
+func memoryToolsEnabled(cfg config.Config) bool {
+	return cfg.Capabilities.Memory && cfg.Transport != config.TransportHTTP
+}
+
+func registerGatewayTools(server *mcp.Server, service *Service, cfg config.Config) {
+	registry := buildGatewayRegistry(service, cfg)
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "opengrok_discover",
+		Description: "List available gateway operations for OpenGrok. Returns the full operation manifest with names and descriptions.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, input GatewayDiscoverInput) (*mcp.CallToolResult, GatewayDiscoverOutput, error) {
+		operations := make([]GatewayOperation, 0, len(registry))
+		names := make([]string, 0, len(registry))
+		for name := range registry {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			operations = append(operations, registry[name].Manifest)
+		}
+		return nil, GatewayDiscoverOutput{Operations: operations}, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "opengrok_call",
+		Description: "Call an OpenGrok gateway operation. Use opengrok_discover to list available operations and their payload schemas.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"operation": map[string]any{"type": "string"},
+				"payload":   map[string]any{}, // any valid JSON
+			},
+			"required": []any{"operation"},
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, input GatewayCallInput) (*mcp.CallToolResult, GatewayCallOutput, error) {
+		op, ok := registry[input.Operation]
+		if !ok {
+			enabledOps := make([]string, 0, len(registry))
+			for name := range registry {
+				enabledOps = append(enabledOps, name)
+			}
+			sort.Strings(enabledOps)
+			return nil, GatewayCallOutput{}, &Error{
+				Code:    codeUnknownOperation,
+				Message: fmt.Sprintf("unknown operation %q; enabled operations: %v", input.Operation, enabledOps),
+			}
+		}
+		result, err := op.Call(ctx, input.Payload)
+		if err != nil {
+			return nil, GatewayCallOutput{}, err
+		}
+		return nil, GatewayCallOutput{
+			Operation: input.Operation,
+			Result:    result,
+		}, nil
+	})
+}
+
+func registerResources(server *mcp.Server, service *Service, cfg config.Config) {
+	if cfg.Capabilities.ListProjects {
+		server.AddResource(&mcp.Resource{
+			URI:         "opengrok://projects",
+			Name:        "projects",
+			Title:       "OpenGrok projects",
+			Description: "Indexed OpenGrok projects.",
+			MIMEType:    "application/json",
+		}, service.projectsResource)
+		server.AddResourceTemplate(&mcp.ResourceTemplate{
+			URITemplate: "opengrok://project/{project}",
+			Name:        "project",
+			Title:       "OpenGrok project",
+			Description: "OpenGrok project metadata.",
+			MIMEType:    "application/json",
+		}, service.projectResource)
+	}
+	if cfg.Capabilities.GetFileContext {
+		server.AddResourceTemplate(&mcp.ResourceTemplate{
+			URITemplate: "opengrok://project/{project}/files/{+path}",
+			Name:        "file",
+			Title:       "OpenGrok file",
+			Description: "OpenGrok file contents.",
+			MIMEType:    "application/json",
+		}, service.fileResource)
+	}
 }
 
 func cursorValue(value *string) string {
@@ -534,21 +1892,39 @@ func cursorValue(value *string) string {
 }
 
 type searchRequest struct {
-	project       string
-	projects      []string
-	query         string
-	mode          string
-	pathPrefix    string
-	fileType      string
-	pageSize      int
-	cursor        string
-	includeLinks  *bool
-	symbol        string
-	expandContext bool
+	project          string
+	projects         []string
+	query            string
+	mode             string
+	pathPrefix       string
+	fileType         string
+	pageSize         int
+	cursor           string
+	includeLinks     *bool
+	includeSnippets  *bool
+	maxHitsPerFile   int
+	sort             string
+	symbol           string
+	expandContext    bool
+	allowAllProjects bool
+	responseMode     string
+	contextBudget    string
 }
 
 func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, error) {
-	projects, err := s.resolveSearchProjects(req.project, req.projects)
+	if req.responseMode != "" && req.responseMode != "full" && req.responseMode != "compact" {
+		return emptySearchOutput(req.mode, req.query), &Error{
+			Code:    codeInvalidResponseMode,
+			Message: fmt.Sprintf("Invalid response_mode %q; valid values: full, compact", req.responseMode),
+		}
+	}
+
+	budget, err := s.resolveBudgetTier(req.contextBudget)
+	if err != nil {
+		return emptySearchOutput(req.mode, req.query), err
+	}
+
+	projects, err := s.resolveSearchProjects(req.project, req.projects, req.allowAllProjects)
 	if err != nil {
 		return emptySearchOutput(req.mode, req.query), err
 	}
@@ -611,12 +1987,49 @@ func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, 
 		warning = &w
 	}
 
+	results := s.results(result.Hits, project, req.mode, req.symbol, s.includeLinks(req.includeLinks))
+
+	totalHits := result.TotalHits
+	if req.maxHitsPerFile > 0 {
+		results = applyMaxHitsPerFile(results, req.maxHitsPerFile)
+	}
+
+	sortedResults, sortWarning, sortErr := applySort(results, req.sort)
+	if sortErr != nil {
+		return emptySearchOutput(req.mode, req.query), sortErr
+	}
+	if sortWarning != "" {
+		if warning != nil {
+			combined := *warning + " " + sortWarning
+			warning = &combined
+		} else {
+			warning = &sortWarning
+		}
+	}
+	results = sortedResults
+
+	var expansion *ExpansionDiagnostics
+	if req.responseMode != "compact" {
+		results, expansion = s.maybeExpandResults(ctx, results, req.expandContext, budget)
+	}
+
+	if req.includeSnippets != nil && !*req.includeSnippets {
+		for i := range results {
+			results[i].Snippet = nil
+		}
+	}
+
+	if req.responseMode == "compact" {
+		results = compactResults(results)
+		expansion = nil
+	}
+
 	return SearchOutput{
 		Project:    project,
 		Mode:       req.mode,
 		Query:      req.query,
-		TotalHits:  result.TotalHits,
-		Results:    s.maybeExpandResults(ctx, s.results(result.Hits, project, req.mode, req.symbol, s.includeLinks(req.includeLinks)), req.expandContext),
+		TotalHits:  totalHits,
+		Results:    results,
 		PageSize:   pageSize,
 		NextCursor: nextCursor,
 		Warning:    warning,
@@ -625,18 +2038,73 @@ func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, 
 			OpenGrokStart:      result.Start,
 			OpenGrokMaxResults: pageSize,
 		},
+		Expansion: expansion,
 	}, nil
 }
 
-func (s *Service) maybeExpandResults(ctx context.Context, results []Result, expand bool) []Result {
-	if !expand {
-		return results
+func compactResults(results []Result) []Result {
+	for i := range results {
+		results[i].ColumnNumber = nil
+		results[i].DisplayTitle = ""
+		results[i].DisplayURL = ""
+		results[i].RawURL = nil
+		results[i].Score = nil
+		results[i].Context = nil
+		results[i].Metadata = nil
 	}
-	return s.expandResultContexts(ctx, results)
+	return results
 }
 
-func (s *Service) resolveSearchProjects(project string, projects []string) ([]string, error) {
-	resolved, err := s.resolveProjects(project, projects)
+func applyMaxHitsPerFile(results []Result, maxHitsPerFile int) []Result {
+	fileCounts := make(map[string]int)
+	filtered := make([]Result, 0, len(results))
+	for _, result := range results {
+		key := result.Project + "\x00" + result.FilePath
+		if fileCounts[key] < maxHitsPerFile {
+			filtered = append(filtered, result)
+			fileCounts[key]++
+		}
+	}
+	return filtered
+}
+
+func applySort(results []Result, sortOrder string) ([]Result, string, error) {
+	switch strings.ToLower(sortOrder) {
+	case "", "relevance":
+		return results, "", nil
+	case "path":
+		sorted := make([]Result, len(results))
+		copy(sorted, results)
+		sort.SliceStable(sorted, func(i, j int) bool {
+			if sorted[i].FilePath != sorted[j].FilePath {
+				return sorted[i].FilePath < sorted[j].FilePath
+			}
+			return sorted[i].LineNumber < sorted[j].LineNumber
+		})
+		return sorted, "", nil
+	case "date":
+		return results, "Date sorting requires OpenGrok API support; results are returned in original order.", nil
+	default:
+		return nil, "", &Error{
+			Code:    "INVALID_SORT",
+			Message: fmt.Sprintf("Invalid sort order %q; valid values: relevance, path, date", sortOrder),
+		}
+	}
+}
+
+func (s *Service) maybeExpandResults(ctx context.Context, results []Result, expand bool, budget config.BudgetValues) ([]Result, *ExpansionDiagnostics) {
+	if !expand {
+		return results, nil
+	}
+	return s.expandResultContextsWithDiagnostics(ctx, results, budget)
+}
+
+func (s *Service) resolveSearchProjects(project string, projects []string, allowAllProjects bool) ([]string, error) {
+	if allowAllProjects && project == "" && len(projects) == 0 {
+		return []string{}, nil
+	}
+
+	resolved, err := s.resolveProjects(project, projects, allowAllProjects)
 	if err == nil {
 		return resolved, nil
 	}
@@ -647,7 +2115,7 @@ func (s *Service) resolveSearchProjects(project string, projects []string) ([]st
 	return []string{}, nil
 }
 
-func (s *Service) resolveProjects(project string, projects []string) ([]string, error) {
+func (s *Service) resolveProjects(project string, projects []string, allowAllProjects bool) ([]string, error) {
 	switch {
 	case project != "":
 		if err := s.validateConfiguredProjects([]string{project}); err != nil {
@@ -736,6 +2204,33 @@ func (s *Service) shouldExpandContext(param *bool) bool {
 	return s.cfg.AutoExpandContext
 }
 
+func (s *Service) resolveBudgetTier(budget string) (config.BudgetValues, error) {
+	switch strings.ToLower(budget) {
+	case "", config.ContextBudgetDefault:
+		return config.BudgetValues{
+			ContextBefore:      s.cfg.ContextBefore,
+			ContextAfter:       s.cfg.ContextAfter,
+			MaxExpandedResults: s.cfg.MaxExpandedResults,
+			MaxExpandedFiles:   s.cfg.MaxExpandedFiles,
+		}, nil
+	case config.ContextBudgetMinimal:
+		return s.cfg.BudgetTiers.Minimal, nil
+	case config.ContextBudgetMaximal:
+		return s.cfg.BudgetTiers.Maximal, nil
+	default:
+		return config.BudgetValues{}, &Error{
+			Code: codeInvalidContextBudget,
+			Message: fmt.Sprintf(
+				"Invalid context_budget %q; valid values: %s, %s, %s",
+				budget,
+				config.ContextBudgetMinimal,
+				config.ContextBudgetDefault,
+				config.ContextBudgetMaximal,
+			),
+		}
+	}
+}
+
 func (s *Service) nextCursor(state cursor.State, totalHits int) (*string, error) {
 	if state.Offset >= totalHits {
 		return nil, nil
@@ -769,21 +2264,29 @@ func (s *Service) results(
 			value := symbol
 			resultSymbol = &value
 		}
+		var attributionWarning *string
+		if hit.AttributionWarning != "" {
+			value := hit.AttributionWarning
+			attributionWarning = &value
+		}
 
 		result := Result{
-			ResultID:     project + ":" + hit.FilePath + ":" + strconv.Itoa(hit.LineNumber),
-			Project:      project,
-			FilePath:     hit.FilePath,
-			LineNumber:   hit.LineNumber,
-			ColumnNumber: nil,
-			Kind:         hit.Tag,
-			Symbol:       resultSymbol,
-			Snippet:      hit.Snippet,
-			DisplayTitle: displayTitle(hit.FilePath, hit.LineNumber),
-			Citation:     citation(displayTitle(hit.FilePath, hit.LineNumber), fileLinks.DisplayURL, hit.LineNumber),
-			ResourceURI:  fileLinks.ResourceURI,
-			Score:        nil,
-			Metadata:     map[string]any{},
+			ResultID:             project + ":" + hit.FilePath + ":" + strconv.Itoa(hit.LineNumber),
+			Project:              project,
+			FilePath:             hit.FilePath,
+			AttributionUncertain: hit.AttributionUncertain,
+			AttributionWarning:   attributionWarning,
+			AttributionSource:    hit.AttributionSource,
+			LineNumber:           hit.LineNumber,
+			ColumnNumber:         nil,
+			Kind:                 hit.Tag,
+			Symbol:               resultSymbol,
+			Snippet:              hit.Snippet,
+			DisplayTitle:         displayTitle(hit.FilePath, hit.LineNumber),
+			Citation:             citation(displayTitle(hit.FilePath, hit.LineNumber), fileLinks.DisplayURL, hit.LineNumber),
+			ResourceURI:          fileLinks.ResourceURI,
+			Score:                nil,
+			Metadata:             map[string]any{},
 		}
 		if includeLinks {
 			result.DisplayURL = fileLinks.DisplayURL
@@ -859,50 +2362,108 @@ type fileFetchResult struct {
 	err     error
 }
 
-func (s *Service) expandResultContexts(ctx context.Context, results []Result) []Result {
+func (s *Service) expandResultContexts(ctx context.Context, results []Result, budget config.BudgetValues) []Result {
+	expanded, _ := s.expandResultContextsWithDiagnostics(ctx, results, budget)
+	return expanded
+}
+
+func (s *Service) expandResultContextsWithDiagnostics(ctx context.Context, results []Result, budget config.BudgetValues) ([]Result, *ExpansionDiagnostics) {
+	diagnostics := &ExpansionDiagnostics{
+		Requested:        len(results),
+		FetchConcurrency: s.contextFetchConcurrency(),
+	}
 	if len(results) == 0 {
-		return results
+		return results, diagnostics
 	}
 
-	// Group result indices by unique (project, file_path).
+	eligibleResults := len(results)
+	if budget.MaxExpandedResults >= 0 {
+		eligibleResults = min(eligibleResults, budget.MaxExpandedResults)
+	}
+	diagnostics.SkippedResults = len(results) - eligibleResults
+
 	fileGroups := make(map[fileKey][]int)
-	for i, r := range results {
+	orderedKeys := make([]fileKey, 0, eligibleResults)
+	for i, r := range results[:eligibleResults] {
 		key := fileKey{project: r.Project, filePath: r.FilePath}
+		if _, ok := fileGroups[key]; !ok {
+			orderedKeys = append(orderedKeys, key)
+		}
 		fileGroups[key] = append(fileGroups[key], i)
 	}
-
-	// Fetch each unique file in parallel.
-	ch := make(chan fileFetchResult, len(fileGroups))
-	for key := range fileGroups {
-		go func() {
-			content, err := s.backend.FileContent(ctx, key.project, key.filePath)
-			ch <- fileFetchResult{key: key, content: content, err: err}
-		}()
+	if budget.MaxExpandedFiles >= 0 && len(orderedKeys) > budget.MaxExpandedFiles {
+		diagnostics.SkippedFiles = len(orderedKeys) - budget.MaxExpandedFiles
+		orderedKeys = orderedKeys[:budget.MaxExpandedFiles]
+	}
+	if len(orderedKeys) == 0 {
+		return results, diagnostics
 	}
 
-	// Collect results; skip files that failed.
-	fileContents := make(map[fileKey]string, len(fileGroups))
-	for range fileGroups {
+	jobs := make(chan fileKey)
+	ch := make(chan fileFetchResult, len(orderedKeys))
+	workerCount := min(diagnostics.FetchConcurrency, len(orderedKeys))
+	for range workerCount {
+		go func() {
+			for key := range jobs {
+				ch <- s.fetchExpandedFile(ctx, key)
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, key := range orderedKeys {
+			jobs <- key
+		}
+	}()
+
+	fileContents := make(map[fileKey]string, len(orderedKeys))
+	for range orderedKeys {
 		r := <-ch
 		if r.err == nil {
 			fileContents[r.key] = r.content
 		}
 	}
 
-	// Attach context windows to results.
-	for i, result := range results {
+	for i, result := range results[:eligibleResults] {
 		key := fileKey{project: result.Project, filePath: result.FilePath}
 		content, ok := fileContents[key]
 		if !ok {
 			continue
 		}
-		window := extractWindow(content, result.LineNumber, s.cfg.ContextBefore, s.cfg.ContextAfter)
+		window := extractWindow(content, result.LineNumber, budget.ContextBefore, budget.ContextAfter)
 		if window.StartLine > 0 {
 			results[i].Context = &window
+			diagnostics.ExpandedResults++
 		}
 	}
+	diagnostics.FetchedFiles = len(fileContents)
+	diagnostics.SkippedResults = len(results) - diagnostics.ExpandedResults
 
-	return results
+	return results, diagnostics
+}
+
+func (s *Service) fetchExpandedFile(ctx context.Context, key fileKey) (result fileFetchResult) {
+	result.key = key
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result.err = fmt.Errorf("file content panic for %s/%s: %v", key.project, key.filePath, recovered)
+		}
+	}()
+
+	if err := ctx.Err(); err != nil {
+		result.err = err
+		return result
+	}
+	result.content, result.err = s.backend.FileContent(ctx, key.project, key.filePath)
+	return result
+}
+
+func (s *Service) contextFetchConcurrency() int {
+	if s.cfg.ContextFetchConcurrency <= 0 {
+		return 1
+	}
+
+	return s.cfg.ContextFetchConcurrency
 }
 
 func extractWindow(content string, lineNumber int, before int, after int) ResultContext {

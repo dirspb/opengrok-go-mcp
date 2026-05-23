@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"strings"
 	"testing"
 	"time"
 )
@@ -11,6 +12,9 @@ func TestDefault(t *testing.T) {
 
 	if cfg.Transport != TransportStdio {
 		t.Fatalf("Transport = %q, want %q", cfg.Transport, TransportStdio)
+	}
+	if cfg.ToolSurface != ToolSurfaceFull {
+		t.Fatalf("ToolSurface = %q, want %q", cfg.ToolSurface, ToolSurfaceFull)
 	}
 	if cfg.Listen != "127.0.0.1:8765" {
 		t.Fatalf("Listen = %q, want %q", cfg.Listen, "127.0.0.1:8765")
@@ -55,6 +59,12 @@ func TestDefault(t *testing.T) {
 		!cfg.Capabilities.SearchSymbolDefinitions || !cfg.Capabilities.SearchSymbolReferences ||
 		!cfg.Capabilities.GetFileContext {
 		t.Fatalf("Capabilities = %#v, want all enabled", cfg.Capabilities)
+	}
+	if cfg.Capabilities.ListFiles {
+		t.Fatal("ListFiles = true, want false (not yet probed)")
+	}
+	if !cfg.Capabilities.Memory {
+		t.Fatal("Memory = false, want local memory capability enabled by default")
 	}
 }
 
@@ -128,6 +138,7 @@ func TestRegisterFlagsDoesNotExposeAuthTokenFlags(t *testing.T) {
 func TestFromEnvAppliesSupportedEnvVars(t *testing.T) {
 	t.Setenv("OPENGROK_MCP_LISTEN", "0.0.0.0:9000")
 	t.Setenv("OPENGROK_MCP_TRANSPORT", "http")
+	t.Setenv("OPENGROK_MCP_TOOL_SURFACE", "compact")
 	t.Setenv("OPENGROK_MCP_BASE_URL", "http://localhost:8080/api")
 	t.Setenv("OPENGROK_MCP_WEB_BASE_URL", "http://localhost:8080/source")
 	t.Setenv("OPENGROK_MCP_DEFAULT_PROJECT", "demo")
@@ -144,6 +155,9 @@ func TestFromEnvAppliesSupportedEnvVars(t *testing.T) {
 	}
 	if cfg.Transport != TransportHTTP {
 		t.Fatalf("Transport = %q, want %q", cfg.Transport, TransportHTTP)
+	}
+	if cfg.ToolSurface != ToolSurfaceCompact {
+		t.Fatalf("ToolSurface = %q, want %q", cfg.ToolSurface, ToolSurfaceCompact)
 	}
 	if cfg.OpenGrokAPIBaseURL != "http://localhost:8080/api" {
 		t.Fatalf("OpenGrokAPIBaseURL = %q, want %q", cfg.OpenGrokAPIBaseURL, "http://localhost:8080/api")
@@ -251,6 +265,60 @@ func TestValidateRequiresBaseURLs(t *testing.T) {
 	}
 }
 
+func TestValidateDerivesWebBaseURLFromAPIBaseURL(t *testing.T) {
+	cfg := Default()
+	cfg.OpenGrokAPIBaseURL = "https://grok.example.com/source/api/v1"
+	cfg.DefaultProject = "platform"
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+	if cfg.OpenGrokWebBaseURL != "https://grok.example.com/source" {
+		t.Fatalf("OpenGrokWebBaseURL = %q, want derived source URL", cfg.OpenGrokWebBaseURL)
+	}
+}
+
+func TestValidateDerivesDefaultProjectFromSingleConfiguredProject(t *testing.T) {
+	cfg := Default()
+	cfg.OpenGrokAPIBaseURL = "https://grok.example.com/source/api/v1"
+	cfg.Projects = []string{"platform"}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil", err)
+	}
+	if cfg.DefaultProject != "platform" {
+		t.Fatalf("DefaultProject = %q, want platform", cfg.DefaultProject)
+	}
+}
+
+func TestValidateRejectsMultipleProjectsWithoutDefaultProject(t *testing.T) {
+	cfg := Default()
+	cfg.OpenGrokAPIBaseURL = "https://grok.example.com/source/api/v1"
+	cfg.Projects = []string{"platform", "infra"}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "OPENGROK_MCP_DEFAULT_PROJECT") {
+		t.Fatalf("Validate() error = %v, want default project guidance", err)
+	}
+}
+
+func TestValidateRejectsDerivedWebBaseURLWithoutAPIv1Suffix(t *testing.T) {
+	cfg := Default()
+	cfg.OpenGrokAPIBaseURL = "https://grok.example.com/source"
+	cfg.DefaultProject = "platform"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "OPENGROK_MCP_WEB_BASE_URL") {
+		t.Fatalf("Validate() error = %v, want explicit web base URL guidance", err)
+	}
+}
+
 func TestValidateRejectsInvalidConfig(t *testing.T) {
 	valid := Default()
 	valid.OpenGrokAPIBaseURL = "http://localhost:8080/api"
@@ -272,6 +340,12 @@ func TestValidateRejectsInvalidConfig(t *testing.T) {
 			name: "unsupported transport",
 			mutate: func(cfg *Config) {
 				cfg.Transport = "websocket"
+			},
+		},
+		{
+			name: "unsupported tool surface",
+			mutate: func(cfg *Config) {
+				cfg.ToolSurface = "wide"
 			},
 		},
 		{
@@ -371,6 +445,21 @@ func TestDefaultAutoExpandContext(t *testing.T) {
 	if cfg.ContextAfter != 10 {
 		t.Fatalf("ContextAfter default = %d, want 10", cfg.ContextAfter)
 	}
+	if cfg.MaxExpandedResults != 10 {
+		t.Fatalf("MaxExpandedResults default = %d, want 10", cfg.MaxExpandedResults)
+	}
+	if cfg.MaxExpandedFiles != 5 {
+		t.Fatalf("MaxExpandedFiles default = %d, want 5", cfg.MaxExpandedFiles)
+	}
+	if cfg.ContextFetchConcurrency != 3 {
+		t.Fatalf("ContextFetchConcurrency default = %d, want 3", cfg.ContextFetchConcurrency)
+	}
+	if cfg.RetryMaxAttempts != 2 {
+		t.Fatalf("RetryMaxAttempts default = %d, want 2", cfg.RetryMaxAttempts)
+	}
+	if cfg.RetryBaseDelay != 200*time.Millisecond {
+		t.Fatalf("RetryBaseDelay default = %s, want %s", cfg.RetryBaseDelay, 200*time.Millisecond)
+	}
 }
 
 func TestFromEnvAutoExpandContextFalse(t *testing.T) {
@@ -390,5 +479,71 @@ func TestFromEnvContextWindow(t *testing.T) {
 	}
 	if cfg.ContextAfter != 7 {
 		t.Fatalf("ContextAfter = %d, want 7", cfg.ContextAfter)
+	}
+}
+
+func TestFromEnvExpansionBudgets(t *testing.T) {
+	t.Setenv("OPENGROK_MCP_MAX_EXPANDED_RESULTS", "7")
+	t.Setenv("OPENGROK_MCP_MAX_EXPANDED_FILES", "3")
+	t.Setenv("OPENGROK_MCP_CONTEXT_FETCH_CONCURRENCY", "2")
+
+	cfg := FromEnv()
+
+	if cfg.MaxExpandedResults != 7 {
+		t.Fatalf("MaxExpandedResults = %d, want 7", cfg.MaxExpandedResults)
+	}
+	if cfg.MaxExpandedFiles != 3 {
+		t.Fatalf("MaxExpandedFiles = %d, want 3", cfg.MaxExpandedFiles)
+	}
+	if cfg.ContextFetchConcurrency != 2 {
+		t.Fatalf("ContextFetchConcurrency = %d, want 2", cfg.ContextFetchConcurrency)
+	}
+}
+
+func TestFromEnvRetryDefaults(t *testing.T) {
+	cfg := FromEnv()
+	if cfg.RetryMaxAttempts != 2 {
+		t.Fatalf("RetryMaxAttempts = %d, want default 2", cfg.RetryMaxAttempts)
+	}
+	if cfg.RetryBaseDelay != 200*time.Millisecond {
+		t.Fatalf("RetryBaseDelay = %s, want default 200ms", cfg.RetryBaseDelay)
+	}
+}
+
+func TestFromEnvRetryOverrides(t *testing.T) {
+	t.Setenv("OPENGROK_MCP_RETRY_MAX_ATTEMPTS", "5")
+	t.Setenv("OPENGROK_MCP_RETRY_BASE_DELAY", "1s")
+	cfg := FromEnv()
+	if cfg.RetryMaxAttempts != 5 {
+		t.Fatalf("RetryMaxAttempts = %d, want 5", cfg.RetryMaxAttempts)
+	}
+	if cfg.RetryBaseDelay != time.Second {
+		t.Fatalf("RetryBaseDelay = %s, want 1s", cfg.RetryBaseDelay)
+	}
+}
+
+func TestFromEnvRetryIgnoresInvalidAttempts(t *testing.T) {
+	t.Setenv("OPENGROK_MCP_RETRY_MAX_ATTEMPTS", "-1")
+	cfg := FromEnv()
+	if cfg.RetryMaxAttempts != 2 {
+		t.Fatalf("RetryMaxAttempts = %d, want default 2", cfg.RetryMaxAttempts)
+	}
+}
+
+func TestFromEnvRetryIgnoresInvalidDelay(t *testing.T) {
+	t.Setenv("OPENGROK_MCP_RETRY_BASE_DELAY", "not-a-duration")
+	cfg := FromEnv()
+	if cfg.RetryBaseDelay != 200*time.Millisecond {
+		t.Fatalf("RetryBaseDelay = %s, want default 200ms", cfg.RetryBaseDelay)
+	}
+}
+
+func TestFromEnvDisablesMemoryCapability(t *testing.T) {
+	t.Setenv("OPENGROK_MCP_MEMORY_ENABLED", "false")
+
+	cfg := FromEnv()
+
+	if cfg.Capabilities.Memory {
+		t.Fatal("Memory = true, want disabled from OPENGROK_MCP_MEMORY_ENABLED")
 	}
 }

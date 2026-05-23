@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,8 +142,81 @@ func TestDetectCapabilitiesEnablesFileContextWithRawFallback(t *testing.T) {
 	}
 }
 
+func TestDetectCapabilitiesProbesListFiles(t *testing.T) {
+	t.Run("ListFiles success enables capability", func(t *testing.T) {
+		backend := &capabilityBackend{
+			searchResults: map[opengrok.Mode]error{
+				opengrok.ModeFullText:   nil,
+				opengrok.ModeDefinition: nil,
+				opengrok.ModeReference:  nil,
+			},
+		}
+
+		cfg := config.Default()
+		cfg.DefaultProject = "platform"
+		caps, err := detectCapabilities(context.Background(), backend, cfg, func(string, ...any) {})
+		if err != nil {
+			t.Fatalf("detectCapabilities returned error: %v", err)
+		}
+		if !caps.ListFiles {
+			t.Fatal("ListFiles capability = false, want true")
+		}
+	})
+
+	t.Run("ListFiles failure disables capability", func(t *testing.T) {
+		backend := &capabilityBackend{
+			listFilesErr: errors.New("unauthorized"),
+			searchResults: map[opengrok.Mode]error{
+				opengrok.ModeFullText:   nil,
+				opengrok.ModeDefinition: nil,
+				opengrok.ModeReference:  nil,
+			},
+		}
+
+		cfg := config.Default()
+		cfg.DefaultProject = "platform"
+		caps, err := detectCapabilities(context.Background(), backend, cfg, func(string, ...any) {})
+		if err != nil {
+			t.Fatalf("detectCapabilities returned error: %v", err)
+		}
+		if caps.ListFiles {
+			t.Fatal("ListFiles capability = true, want false")
+		}
+	})
+}
+
+func TestDetectCapabilitiesPreservesConfiguredMemoryCapability(t *testing.T) {
+	backend := &capabilityBackend{
+		searchResults: map[opengrok.Mode]error{
+			opengrok.ModeFullText:   nil,
+			opengrok.ModeDefinition: nil,
+			opengrok.ModeReference:  nil,
+		},
+	}
+
+	cfg := config.Default()
+	cfg.DefaultProject = "platform"
+	caps, err := detectCapabilities(context.Background(), backend, cfg, func(string, ...any) {})
+	if err != nil {
+		t.Fatalf("detectCapabilities returned error: %v", err)
+	}
+	if !caps.Memory {
+		t.Fatal("Memory capability = false, want configured local capability preserved")
+	}
+
+	cfg.Capabilities.Memory = false
+	caps, err = detectCapabilities(context.Background(), backend, cfg, func(string, ...any) {})
+	if err != nil {
+		t.Fatalf("detectCapabilities disabled-memory error: %v", err)
+	}
+	if caps.Memory {
+		t.Fatal("Memory capability = true, want configured disable preserved")
+	}
+}
+
 type capabilityBackend struct {
 	listProjectsErr error
+	listFilesErr    error
 	searchResults   map[opengrok.Mode]error
 	searchRequests  []opengrok.SearchRequest
 	fileErr         error
@@ -159,6 +235,13 @@ func (b *capabilityBackend) Search(_ context.Context, req opengrok.SearchRequest
 		return opengrok.SearchResult{Hits: []opengrok.Hit{}}, err
 	}
 	return opengrok.SearchResult{Hits: []opengrok.Hit{}}, nil
+}
+
+func (b *capabilityBackend) ListFiles(context.Context, string, string) ([]opengrok.FileEntry, error) {
+	if b.listFilesErr != nil {
+		return nil, b.listFilesErr
+	}
+	return []opengrok.FileEntry{}, nil
 }
 
 func (b *capabilityBackend) FileContent(context.Context, string, string) (string, error) {
@@ -233,6 +316,66 @@ func TestOpenGrokOptionsConfiguresRawWebFallback(t *testing.T) {
 	}
 	if got != "content" {
 		t.Fatalf("FileContent() = %q, want fallback content", got)
+	}
+}
+
+func TestStartupLogsDerivedConfig(t *testing.T) {
+	t.Setenv("OPENGROK_MCP_WEB_BASE_URL", "")
+	t.Setenv("OPENGROK_MCP_DEFAULT_PROJECT", "")
+	t.Setenv("OPENGROK_MCP_PROJECTS", "")
+
+	cfg := config.Default()
+	cfg.OpenGrokAPIBaseURL = "https://grok.example.com/source/api/v1"
+	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"
+	cfg.Projects = []string{"platform"}
+	cfg.DefaultProject = "platform"
+	cfg.Capabilities = config.Capabilities{
+		ListProjects: true,
+		SearchCode:   true,
+	}
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	logStartupDiagnostics(cfg, "")
+
+	output := buf.String()
+	if !strings.Contains(output, "web URL") && !strings.Contains(output, "derived") {
+		t.Fatalf("expected log output to contain 'web URL' or 'derived', got: %s", output)
+	}
+}
+
+func TestStartupLogsEnabledCapabilities(t *testing.T) {
+	cfg := config.Default()
+	cfg.OpenGrokAPIBaseURL = "https://grok.example.com/source/api/v1"
+	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"
+	cfg.DefaultProject = "platform"
+	cfg.Capabilities = config.Capabilities{
+		ListProjects:            true,
+		SearchCode:              false,
+		SearchSymbolDefinitions: true,
+		SearchSymbolReferences:  false,
+		GetFileContext:          true,
+		ListSymbols:             false,
+		ListFiles:               true,
+		Memory:                  true,
+	}
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	logStartupDiagnostics(cfg, "")
+
+	output := buf.String()
+	for _, name := range []string{
+		"list_projects", "search_code", "search_symbol_definitions",
+		"search_symbol_references", "get_file_context", "list_symbols", "list_files", "memory",
+	} {
+		if !strings.Contains(output, name) {
+			t.Fatalf("expected capability name %q in log output, got: %s", name, output)
+		}
 	}
 }
 

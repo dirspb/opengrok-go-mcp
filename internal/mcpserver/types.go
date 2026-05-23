@@ -1,38 +1,69 @@
 package mcpserver
 
+import "encoding/json"
+
 type SearchCodeInput struct {
-	Project      string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
-	Projects     []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
-	Query        string   `json:"query"`
-	Mode         string   `json:"mode,omitempty"`
-	PathPrefix   string   `json:"path_prefix"`
-	FileType     string   `json:"file_type"`
-	PageSize     int      `json:"page_size"`
-	Cursor       *string  `json:"cursor,omitempty"`
-	IncludeLinks *bool    `json:"include_links,omitempty"`
-	ExpandContext *bool   `json:"expand_context,omitempty"`
+	Project          string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
+	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
+	Query            string   `json:"query"`
+	Mode             string   `json:"mode,omitempty"`
+	PathPrefix       string   `json:"path_prefix"`
+	FileType         string   `json:"file_type"`
+	PageSize         int      `json:"page_size"`
+	Cursor           *string  `json:"cursor,omitempty"`
+	IncludeLinks     *bool    `json:"include_links,omitempty"`
+	IncludeSnippets  *bool    `json:"include_snippets,omitempty"`
+	MaxHitsPerFile   int      `json:"max_hits_per_file,omitempty" jsonschema:"optional maximum results per file; 0 means no limit"`
+	Sort             string   `json:"sort,omitempty" jsonschema:"optional sort order: relevance (default), path, or date"`
+	ExpandContext    *bool    `json:"expand_context,omitempty"`
+	AllowAllProjects *bool    `json:"allow_all_projects,omitempty" jsonschema:"explicitly allow searching across all projects, bypassing the configured project list"`
+	ResponseMode     string   `json:"response_mode,omitempty" jsonschema:"optional response detail level: full (default) or compact"`
+	ContextBudget    string   `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
+}
+
+type CompactSearchInput struct {
+	Operation string          `json:"operation" jsonschema:"one of: code, definitions, references"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+type CompactSymbolsInput struct {
+	Operation string          `json:"operation" jsonschema:"one of: list, implementations, cross_project_references"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+type CompactReadInput struct {
+	Operation string          `json:"operation" jsonschema:"one of: file, context"`
+	Payload   json.RawMessage `json:"payload"`
 }
 
 type SymbolSearchInput struct {
-	Project      string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
-	Projects     []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
-	Symbol       string   `json:"symbol"`
-	PageSize     int      `json:"page_size"`
-	Cursor       *string  `json:"cursor,omitempty"`
-	IncludeLinks *bool    `json:"include_links,omitempty"`
-	ExpandContext *bool   `json:"expand_context,omitempty"`
+	Project          string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
+	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
+	Symbol           string   `json:"symbol"`
+	PageSize         int      `json:"page_size"`
+	Cursor           *string  `json:"cursor,omitempty"`
+	IncludeLinks     *bool    `json:"include_links,omitempty"`
+	IncludeSnippets  *bool    `json:"include_snippets,omitempty"`
+	MaxHitsPerFile   int      `json:"max_hits_per_file,omitempty" jsonschema:"optional maximum results per file; 0 means no limit"`
+	Sort             string   `json:"sort,omitempty" jsonschema:"optional sort order: relevance (default), path, or date"`
+	ExpandContext    *bool    `json:"expand_context,omitempty"`
+	AllowAllProjects *bool    `json:"allow_all_projects,omitempty" jsonschema:"explicitly allow searching across all projects, bypassing the configured project list"`
+	ResponseMode     string   `json:"response_mode,omitempty" jsonschema:"optional response detail level: full (default) or compact"`
+	ContextBudget    string   `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
 }
 
 type SearchOutput struct {
-	Project     string      `json:"project"`
-	Mode        string      `json:"mode"`
-	Query       string      `json:"query"`
-	TotalHits   int         `json:"total_hits"`
-	Results     []Result    `json:"results"`
-	PageSize    int         `json:"page_size"`
-	NextCursor  *string     `json:"next_cursor"`
-	Warning     *string     `json:"warning,omitempty"`
-	Diagnostics Diagnostics `json:"diagnostics"`
+	Project     string                `json:"project"`
+	Mode        string                `json:"mode"`
+	Query       string                `json:"query"`
+	TotalHits   int                   `json:"total_hits"`
+	Results     []Result              `json:"results"`
+	PageSize    int                   `json:"page_size"`
+	NextCursor  *string               `json:"next_cursor"`
+	Warning     *string               `json:"warning,omitempty"`
+	BestEffort  *bool                 `json:"best_effort,omitempty"`
+	Diagnostics Diagnostics           `json:"diagnostics"`
+	Expansion   *ExpansionDiagnostics `json:"expansion,omitempty"`
 }
 
 type Diagnostics struct {
@@ -41,23 +72,35 @@ type Diagnostics struct {
 	OpenGrokMaxResults int `json:"opengrok_max_results"`
 }
 
+type ExpansionDiagnostics struct {
+	Requested        int `json:"requested"`
+	ExpandedResults  int `json:"expanded_results"`
+	SkippedResults   int `json:"skipped_results"`
+	FetchedFiles     int `json:"fetched_files"`
+	SkippedFiles     int `json:"skipped_files"`
+	FetchConcurrency int `json:"fetch_concurrency"`
+}
+
 type Result struct {
-	ResultID     string         `json:"result_id"`
-	Project      string         `json:"project"`
-	FilePath     string         `json:"file_path"`
-	LineNumber   int            `json:"line_number"`
-	ColumnNumber *int           `json:"column_number"`
-	Kind         string         `json:"kind"`
-	Symbol       *string        `json:"symbol"`
-	Snippet      string         `json:"snippet"`
-	DisplayTitle string         `json:"display_title"`
-	DisplayURL   string         `json:"display_url"`
-	RawURL       *string        `json:"raw_url"`
-	Citation     Citation       `json:"citation"`
-	ResourceURI  string         `json:"resource_uri"`
-	Score        *float64       `json:"score"`
-	Context      *ResultContext `json:"context,omitempty"`
-	Metadata     map[string]any `json:"metadata"`
+	ResultID             string         `json:"result_id"`
+	Project              string         `json:"project"`
+	FilePath             string         `json:"file_path"`
+	AttributionUncertain bool           `json:"attribution_uncertain,omitempty"`
+	AttributionWarning   *string        `json:"attribution_warning,omitempty"`
+	AttributionSource    string         `json:"attribution_source,omitempty"`
+	LineNumber           int            `json:"line_number"`
+	ColumnNumber         *int           `json:"column_number"`
+	Kind                 string         `json:"kind,omitempty"`
+	Symbol               *string        `json:"symbol"`
+	Snippet              *string        `json:"snippet,omitempty"`
+	DisplayTitle         string         `json:"display_title,omitempty"`
+	DisplayURL           string         `json:"display_url,omitempty"`
+	RawURL               *string        `json:"raw_url"`
+	Citation             Citation       `json:"citation"`
+	ResourceURI          string         `json:"resource_uri,omitempty"`
+	Score                *float64       `json:"score"`
+	Context              *ResultContext `json:"context,omitempty"`
+	Metadata             map[string]any `json:"metadata,omitempty"`
 }
 
 type Citation struct {
@@ -99,6 +142,7 @@ type FileContextInput struct {
 	IncludeAnnotations bool    `json:"include_annotations,omitempty"`
 	IncludeLinks       *bool   `json:"include_links,omitempty"`
 	Cursor             *string `json:"cursor,omitempty"`
+	ContextBudget      string  `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
 }
 
 type FileContextOutput struct {
@@ -133,11 +177,12 @@ type ListSymbolsInput struct {
 }
 
 type ListSymbolsOutput struct {
-	Symbols    []SymbolItem `json:"symbols"`
-	TotalHits  int          `json:"total_hits"`
-	PageSize   int          `json:"page_size"`
-	NextCursor *string      `json:"next_cursor"`
-	Warning    *string      `json:"warning,omitempty"`
+	Symbols           []SymbolItem `json:"symbols"`
+	TotalHits         int          `json:"total_hits"`
+	FilteredTotalHits *int         `json:"filtered_total_hits,omitempty"`
+	PageSize          int          `json:"page_size"`
+	NextCursor        *string      `json:"next_cursor"`
+	Warning           *string      `json:"warning,omitempty"`
 }
 
 type SymbolItem struct {
@@ -148,4 +193,246 @@ type SymbolItem struct {
 	Snippet     *string `json:"snippet"`
 	ResourceURI string  `json:"resource_uri"`
 	DisplayURL  string  `json:"display_url,omitempty"`
+}
+
+type ListFilesInput struct {
+	Project      string  `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
+	Path         string  `json:"path,omitempty"`
+	Kind         *string `json:"kind,omitempty" jsonschema:"optional filter: file, directory, or both (default)"`
+	PageSize     int     `json:"page_size,omitempty"`
+	Cursor       *string `json:"cursor,omitempty"`
+	IncludeLinks *bool   `json:"include_links,omitempty"`
+}
+
+type FileItem struct {
+	Project     string `json:"project"`
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	IsDirectory bool   `json:"is_directory"`
+	NumLines    int    `json:"num_lines,omitempty"`
+	Loc         int    `json:"loc,omitempty"`
+	Size        *int64 `json:"size,omitempty"`
+	Description string `json:"description,omitempty"`
+	DisplayURL  string `json:"display_url,omitempty"`
+	ResourceURI string `json:"resource_uri,omitempty"`
+}
+
+type ListFilesOutput struct {
+	Project    string     `json:"project"`
+	Path       string     `json:"path"`
+	Files      []FileItem `json:"files"`
+	TotalFiles int        `json:"total_files"`
+	PageSize   int        `json:"page_size"`
+	NextCursor *string    `json:"next_cursor,omitempty"`
+	Truncated  bool       `json:"truncated"`
+	Warning    *string    `json:"warning,omitempty"`
+}
+
+type ProjectOverviewInput struct {
+	Project string `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
+}
+
+type LanguageStat struct {
+	Language string  `json:"language"`
+	Files    int     `json:"files"`
+	Lines    int     `json:"lines"`
+	Percent  float64 `json:"percent"`
+}
+
+type ProjectOverviewOutput struct {
+	Project      string         `json:"project"`
+	TotalFiles   int            `json:"total_files"`
+	TotalDirs    int            `json:"total_dirs"`
+	TopDirs      []FileItem     `json:"top_dirs"`
+	TopFiles     []FileItem     `json:"top_files"`
+	Description  string         `json:"description,omitempty"`
+	Truncated    bool           `json:"truncated"`
+	Warning      *string        `json:"warning,omitempty"`
+	Languages    []LanguageStat `json:"languages,omitempty"`
+	TotalSymbols int            `json:"total_symbols,omitempty"`
+	LastIndexed  *string        `json:"last_indexed,omitempty"`
+}
+
+type ImplementationSearchInput struct {
+	Project          string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
+	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
+	Symbol           string   `json:"symbol"`
+	PageSize         int      `json:"page_size,omitempty"`
+	Cursor           *string  `json:"cursor,omitempty"`
+	IncludeLinks     *bool    `json:"include_links,omitempty"`
+	ExpandContext    *bool    `json:"expand_context,omitempty"`
+	MaxHitsPerFile   int      `json:"max_hits_per_file,omitempty" jsonschema:"optional maximum results per file; 0 means no limit"`
+	Sort             string   `json:"sort,omitempty" jsonschema:"optional sort order: relevance (default), path, or date"`
+	AllowAllProjects *bool    `json:"allow_all_projects,omitempty" jsonschema:"explicitly allow searching across all projects, bypassing the configured project list"`
+	ResponseMode     string   `json:"response_mode,omitempty" jsonschema:"optional response detail level: full (default) or compact"`
+	ContextBudget    string   `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
+}
+
+type CrossProjectReferencesInput struct {
+	Symbol           string   `json:"symbol"`
+	Projects         []string `json:"projects,omitempty"`
+	PageSize         int      `json:"page_size,omitempty"`
+	Cursor           *string  `json:"cursor,omitempty"`
+	IncludeLinks     *bool    `json:"include_links,omitempty"`
+	ExpandContext    *bool    `json:"expand_context,omitempty"`
+	MaxHitsPerFile   int      `json:"max_hits_per_file,omitempty" jsonschema:"optional maximum results per file; 0 means no limit"`
+	Sort             string   `json:"sort,omitempty" jsonschema:"optional sort order: relevance (default), path, or date"`
+	AllowAllProjects *bool    `json:"allow_all_projects,omitempty" jsonschema:"explicitly allow searching across all projects, bypassing the configured project list"`
+	ResponseMode     string   `json:"response_mode,omitempty" jsonschema:"optional response detail level: full (default) or compact"`
+	ContextBudget    string   `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
+}
+
+type ProjectReferenceGroup struct {
+	Project string   `json:"project"`
+	Results []Result `json:"results"`
+	Total   int      `json:"total"`
+}
+
+type GatewayDiscoverInput struct{}
+
+type GatewayOperation struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Examples    []string `json:"examples,omitempty"`
+}
+
+type GatewayDiscoverOutput struct {
+	Operations []GatewayOperation `json:"operations"`
+}
+
+type GatewayCallInput struct {
+	Operation string          `json:"operation"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+type GatewayCallOutput struct {
+	Operation string `json:"operation"`
+	Result    any    `json:"result"`
+}
+
+type CrossProjectReferencesOutput struct {
+	Symbol      string                  `json:"symbol"`
+	Projects    []ProjectReferenceGroup `json:"projects"`
+	TotalHits   int                     `json:"total_hits"`
+	PageSize    int                     `json:"page_size"`
+	NextCursor  *string                 `json:"next_cursor,omitempty"`
+	Warning     *string                 `json:"warning,omitempty"`
+	Diagnostics Diagnostics             `json:"diagnostics"`
+}
+
+type MemorySetInput struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type MemorySetOutput struct {
+	Success bool `json:"success"`
+}
+
+type MemoryGetInput struct {
+	Key string `json:"key"`
+}
+
+type MemoryGetOutput struct {
+	Value string `json:"value,omitempty"`
+	Found bool   `json:"found"`
+}
+
+type MemoryListInput struct{}
+
+type MemoryListOutput struct {
+	Entries map[string]string `json:"entries"`
+}
+
+type MemoryDeleteInput struct {
+	Key string `json:"key"`
+}
+
+type MemoryDeleteOutput struct {
+	Found   bool `json:"found"`
+	Deleted bool `json:"deleted"`
+}
+
+type MemoryClearInput struct{}
+
+type MemoryClearOutput struct {
+	Success bool `json:"success"`
+}
+
+type CompactMemoryInput struct {
+	Operation string          `json:"operation" jsonschema:"one of: set, get, list, delete, clear"`
+	Payload   json.RawMessage `json:"payload"`
+}
+
+type SearchAndReadInput struct {
+	Project          string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override"`
+	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides"`
+	Query            string   `json:"query"`
+	Mode             string   `json:"mode,omitempty"`
+	PathPrefix       string   `json:"path_prefix,omitempty"`
+	FileType         string   `json:"file_type,omitempty"`
+	MaxResults       int      `json:"max_results,omitempty" jsonschema:"optional maximum results to read; 0 means read all"`
+	LinesBefore      int      `json:"lines_before,omitempty"`
+	LinesAfter       int      `json:"lines_after,omitempty"`
+	IncludeLinks     *bool    `json:"include_links,omitempty"`
+	IncludeSnippets  *bool    `json:"include_snippets,omitempty"`
+	ResponseMode     string   `json:"response_mode,omitempty"`
+	ContextBudget    string   `json:"context_budget,omitempty"`
+	Cursor           *string  `json:"cursor,omitempty"`
+	PageSize         int      `json:"page_size,omitempty"`
+	AllowAllProjects *bool    `json:"allow_all_projects,omitempty"`
+}
+
+type SearchAndReadOutput struct {
+	Project     string                `json:"project"`
+	Mode        string                `json:"mode"`
+	Query       string                `json:"query"`
+	TotalHits   int                   `json:"total_hits"`
+	Results     []SearchAndReadResult `json:"results"`
+	PageSize    int                   `json:"page_size"`
+	NextCursor  *string               `json:"next_cursor,omitempty"`
+	Warning     *string               `json:"warning,omitempty"`
+	Diagnostics Diagnostics           `json:"diagnostics"`
+}
+
+type SearchAndReadResult struct {
+	ResultID    string   `json:"result_id"`
+	Project     string   `json:"project"`
+	FilePath    string   `json:"file_path"`
+	LineNumber  int      `json:"line_number"`
+	Kind        string   `json:"kind,omitempty"`
+	Symbol      *string  `json:"symbol,omitempty"`
+	Snippet     *string  `json:"snippet,omitempty"`
+	Content     string   `json:"content"`
+	StartLine   int      `json:"start_line"`
+	EndLine     int      `json:"end_line"`
+	Citation    Citation `json:"citation"`
+	ResourceURI string   `json:"resource_uri,omitempty"`
+}
+
+type FindSymbolAndReferencesInput struct {
+	Project          string   `json:"project,omitempty"`
+	Projects         []string `json:"projects,omitempty"`
+	Symbol           string   `json:"symbol"`
+	IncludeLinks     *bool    `json:"include_links,omitempty"`
+	IncludeSnippets  *bool    `json:"include_snippets,omitempty"`
+	ResponseMode     string   `json:"response_mode,omitempty"`
+	ContextBudget    string   `json:"context_budget,omitempty"`
+	AllowAllProjects *bool    `json:"allow_all_projects,omitempty"`
+}
+
+type FindSymbolAndReferencesOutput struct {
+	Symbol      string               `json:"symbol"`
+	Definition  *SearchAndReadResult `json:"definition,omitempty"`
+	References  []Result             `json:"references"`
+	TotalRefs   int                  `json:"total_references"`
+	PageSize    int                  `json:"page_size"`
+	NextCursor  *string              `json:"next_cursor,omitempty"`
+	Warning     *string              `json:"warning,omitempty"`
+	Diagnostics Diagnostics          `json:"diagnostics"`
+}
+
+type CompactCompoundInput struct {
+	Operation string          `json:"operation" jsonschema:"one of: search_and_read, find_symbol_and_references"`
+	Payload   json.RawMessage `json:"payload"`
 }

@@ -1,6 +1,9 @@
 package cursor
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	want := State{
@@ -238,5 +241,171 @@ func TestDecodeFileRejectsZeroPageSize(t *testing.T) {
 	_, err = DecodeFile(encoded)
 	if err == nil {
 		t.Fatal("DecodeFile() error = nil, want error for zero page size")
+	}
+}
+
+func TestEncodeDecodeFileListState(t *testing.T) {
+	want := FileListState{
+		Project:  "platform",
+		Path:     "src/",
+		Offset:   25,
+		PageSize: 50,
+	}
+
+	encoded, err := EncodeFileList(want)
+	if err != nil {
+		t.Fatalf("EncodeFileList() error = %v, want nil", err)
+	}
+
+	got, err := DecodeFileList(encoded)
+	if err != nil {
+		t.Fatalf("DecodeFileList() error = %v, want nil", err)
+	}
+
+	if got.Project != want.Project ||
+		got.Path != want.Path ||
+		got.Offset != want.Offset ||
+		got.PageSize != want.PageSize {
+		t.Fatalf("DecodeFileList(EncodeFileList(state)) = %#v, want %#v", got, want)
+	}
+}
+
+func TestDecodeFileListRejectsNegativeOffset(t *testing.T) {
+	state := FileListState{Project: "platform", Path: "src/", Offset: -1, PageSize: 50}
+	encoded, err := EncodeFileList(state)
+	if err != nil {
+		t.Fatalf("EncodeFileList() error = %v", err)
+	}
+	_, err = DecodeFileList(encoded)
+	if err == nil {
+		t.Fatal("DecodeFileList() error = nil, want error for negative offset")
+	}
+}
+
+func TestDecodeFileListRejectsZeroPageSize(t *testing.T) {
+	state := FileListState{Project: "platform", Path: "src/", Offset: 0, PageSize: 0}
+	encoded, err := EncodeFileList(state)
+	if err != nil {
+		t.Fatalf("EncodeFileList() error = %v", err)
+	}
+	_, err = DecodeFileList(encoded)
+	if err == nil {
+		t.Fatal("DecodeFileList() error = nil, want error for zero page size")
+	}
+}
+
+func TestDecodeFileListRejectsEmptyProject(t *testing.T) {
+	state := FileListState{Project: "", Path: "src/", Offset: 0, PageSize: 50}
+	encoded, err := EncodeFileList(state)
+	if err != nil {
+		t.Fatalf("EncodeFileList() error = %v", err)
+	}
+	_, err = DecodeFileList(encoded)
+	if err == nil {
+		t.Fatal("DecodeFileList() error = nil, want error for empty project")
+	}
+}
+
+func TestDecodeFileListRejectsInvalidBase64(t *testing.T) {
+	_, err := DecodeFileList("not-valid-base64!!!")
+	if err == nil {
+		t.Fatal("DecodeFileList() error = nil, want error")
+	}
+}
+
+func TestEncodeSignsCursor(t *testing.T) {
+	oldSecret := Secret
+	Secret = "test-secret"
+	defer func() { Secret = oldSecret }()
+
+	state := State{Project: "platform", Query: "test", Mode: "full_text", Offset: 0, PageSize: 20}
+	encoded, err := Encode(state)
+	if err != nil {
+		t.Fatalf("Encode() error = %v, want nil", err)
+	}
+	if !strings.Contains(encoded, ".") {
+		t.Fatal("Encode() = unsigned cursor, want signed cursor with signature")
+	}
+}
+
+func TestDecodeRejectsTamperedCursor(t *testing.T) {
+	oldSecret := Secret
+	Secret = "test-secret"
+	defer func() { Secret = oldSecret }()
+
+	state := State{Project: "platform", Query: "test", Mode: "full_text", Offset: 0, PageSize: 20}
+	encoded, err := Encode(state)
+	if err != nil {
+		t.Fatalf("Encode() error = %v, want nil", err)
+	}
+
+	tampered := encoded[:len(encoded)-4] + "XXXX"
+	_, err = Decode(tampered)
+	if err == nil {
+		t.Fatal("Decode() error = nil, want error for tampered cursor")
+	}
+	if !strings.Contains(err.Error(), "INVALID_CURSOR: signature mismatch") {
+		t.Fatalf("Decode() error = %v, want signature mismatch", err)
+	}
+}
+
+func TestDecodeAcceptsUnsignedCursorWhenSecretEmpty(t *testing.T) {
+	oldSecret := Secret
+	Secret = ""
+	defer func() { Secret = oldSecret }()
+
+	state := State{Project: "platform", Query: "test", Mode: "full_text", Offset: 0, PageSize: 20}
+	encoded, err := Encode(state)
+	if err != nil {
+		t.Fatalf("Encode() error = %v, want nil", err)
+	}
+
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatalf("Decode() error = %v, want nil", err)
+	}
+	if decoded.Query != state.Query {
+		t.Fatalf("Decode() Query = %q, want %q", decoded.Query, state.Query)
+	}
+}
+
+func TestDecodeAcceptsSignedCursorWhenSecretMatches(t *testing.T) {
+	oldSecret := Secret
+	Secret = "matching-secret"
+	defer func() { Secret = oldSecret }()
+
+	state := State{Project: "platform", Query: "test", Mode: "full_text", Offset: 0, PageSize: 20}
+	encoded, err := Encode(state)
+	if err != nil {
+		t.Fatalf("Encode() error = %v, want nil", err)
+	}
+
+	decoded, err := Decode(encoded)
+	if err != nil {
+		t.Fatalf("Decode() error = %v, want nil", err)
+	}
+	if decoded.Query != state.Query {
+		t.Fatalf("Decode() Query = %q, want %q", decoded.Query, state.Query)
+	}
+}
+
+func TestDecodeRejectsSignedCursorWhenSecretMismatched(t *testing.T) {
+	oldSecret := Secret
+	Secret = "correct-secret"
+	defer func() { Secret = oldSecret }()
+
+	state := State{Project: "platform", Query: "test", Mode: "full_text", Offset: 0, PageSize: 20}
+	encoded, err := Encode(state)
+	if err != nil {
+		t.Fatalf("Encode() error = %v, want nil", err)
+	}
+
+	Secret = "wrong-secret"
+	_, err = Decode(encoded)
+	if err == nil {
+		t.Fatal("Decode() error = nil, want error for mismatched secret")
+	}
+	if !strings.Contains(err.Error(), "INVALID_CURSOR: signature mismatch") {
+		t.Fatalf("Decode() error = %v, want signature mismatch", err)
 	}
 }

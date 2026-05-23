@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/rokasklive/opengrok-go-mcp/internal/cache"
 	"github.com/rokasklive/opengrok-go-mcp/internal/config"
+	"github.com/rokasklive/opengrok-go-mcp/internal/cursor"
 	"github.com/rokasklive/opengrok-go-mcp/internal/mcpserver"
 	"github.com/rokasklive/opengrok-go-mcp/internal/opengrok"
 )
@@ -46,6 +48,11 @@ func run() error {
 		return fmt.Errorf("validate config: %w", err)
 	}
 
+	cursor.Secret = cfg.CursorSecret
+	if cursor.Secret == "" {
+		log.Printf("WARNING: cursor signing disabled; set OPENGROK_MCP_CURSOR_SECRET for integrity")
+	}
+
 	httpClient := &http.Client{
 		Timeout: cfg.ReadTimeout,
 	}
@@ -55,11 +62,19 @@ func run() error {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
 		}
 	}
-	backend := opengrok.NewClient(
+	var backend mcpserver.Backend = opengrok.NewClient(
 		cfg.OpenGrokAPIBaseURL,
 		httpClient,
 		opengrokOptions(cfg)...,
 	)
+
+	var cacheStats string
+	if cfg.CacheEnabled {
+		cacheInstance := cache.New(cfg.CacheTTL)
+		backend = mcpserver.NewCachingBackend(backend, cacheInstance, cfg.CacheMaxSize)
+		cacheStats = fmt.Sprintf(" enabled ttl=%s max_size=%d", cfg.CacheTTL, cfg.CacheMaxSize)
+	}
+
 	checkCtx, cancel := context.WithTimeout(context.Background(), cfg.ReadTimeout)
 	defer cancel()
 	caps, err := detectCapabilities(checkCtx, backend, cfg, log.Printf)
@@ -67,6 +82,7 @@ func run() error {
 		return err
 	}
 	cfg.Capabilities = caps
+	logStartupDiagnostics(cfg, cacheStats)
 
 	mcpServer := mcpserver.NewMCPServer(cfg, backend, version)
 	if cfg.Transport == config.TransportStdio {
@@ -139,6 +155,7 @@ func serve(server *http.Server) error {
 
 type capabilityChecker interface {
 	ListProjects(context.Context) ([]string, error)
+	ListFiles(context.Context, string, string) ([]opengrok.FileEntry, error)
 	Search(context.Context, opengrok.SearchRequest) (opengrok.SearchResult, error)
 	FileContent(context.Context, string, string) (string, error)
 }
@@ -151,6 +168,7 @@ func detectCapabilities(
 ) (config.Capabilities, error) {
 	var caps config.Capabilities
 	caps.ListProjects = true
+	caps.Memory = cfg.Capabilities.Memory
 	if _, err := backend.ListProjects(ctx); err != nil {
 		if len(cfg.Projects) > 0 {
 			logCapability(logf, "list_projects", true, "API unavailable, using configured projects")
@@ -190,10 +208,13 @@ func detectCapabilities(
 		"search_symbol_references",
 	)
 	caps.GetFileContext = probeFileCapability(ctx, backend, cfg, logf)
+	caps.ListFiles = probeFileListCapability(ctx, backend, cfg, logf)
 	caps.ListSymbols = caps.SearchSymbolDefinitions
 	if caps.ListSymbols {
 		logCapability(logf, "list_symbols", true, "enabled via search_symbol_definitions")
 	}
+
+	caps.ServerSideSort = probeSortCapability(ctx, backend, probeProjects, logf)
 
 	if !caps.SearchCode && !caps.SearchSymbolDefinitions && !caps.SearchSymbolReferences {
 		return caps, errors.New("check OpenGrok access: no search capabilities are available")
@@ -237,6 +258,29 @@ func probeSearchCapability(
 	return true
 }
 
+func probeSortCapability(
+	ctx context.Context,
+	backend capabilityChecker,
+	projects []string,
+	logf func(string, ...any),
+) bool {
+	_, err := backend.Search(ctx, opengrok.SearchRequest{
+		Projects: projects,
+		Query:    "test",
+		Mode:     opengrok.ModeFullText,
+		Limit:    1,
+		Offset:   0,
+		Sort:     "path",
+	})
+	if err != nil {
+		logCapability(logf, "server_side_sort", false, err.Error())
+		return false
+	}
+
+	logCapability(logf, "server_side_sort", true, "")
+	return true
+}
+
 func probeFileCapability(
 	ctx context.Context,
 	backend capabilityChecker,
@@ -264,6 +308,33 @@ func probeFileCapability(
 	}
 
 	logCapability(logf, "get_file_context", true, "")
+	return true
+}
+
+func probeFileListCapability(
+	ctx context.Context,
+	backend capabilityChecker,
+	cfg config.Config,
+	logf func(string, ...any),
+) bool {
+	probeProjects := capabilityProbeProjects(cfg)
+	var project string
+	if len(probeProjects) > 0 {
+		project = probeProjects[0]
+	} else {
+		project = cfg.DefaultProject
+	}
+	if project == "" {
+		logCapability(logf, "list_files", false, "no project configured for probe")
+		return false
+	}
+
+	if _, err := backend.ListFiles(ctx, project, ""); err != nil {
+		logCapability(logf, "list_files", false, err.Error())
+		return false
+	}
+
+	logCapability(logf, "list_files", true, "")
 	return true
 }
 
@@ -296,6 +367,68 @@ func opengrokOptions(cfg config.Config) []opengrok.Option {
 	if cfg.Debug {
 		options = append(options, opengrok.WithDebug(true))
 	}
+	options = append(options, opengrok.WithRetryPolicy(opengrok.RetryPolicy{
+		MaxAttempts: cfg.RetryMaxAttempts,
+		BaseDelay:   cfg.RetryBaseDelay,
+	}))
 
 	return options
+}
+
+func logStartupDiagnostics(cfg config.Config, cacheStats string) {
+	// Derived values
+	derivedWebURL := strings.TrimSuffix(strings.TrimRight(cfg.OpenGrokAPIBaseURL, "/"), "/api/v1")
+	if derivedWebURL == cfg.OpenGrokWebBaseURL && os.Getenv("OPENGROK_MCP_WEB_BASE_URL") == "" {
+		log.Printf("startup config: web URL=%s (derived from API URL)", cfg.OpenGrokWebBaseURL)
+	} else {
+		log.Printf("startup config: web URL=%s", cfg.OpenGrokWebBaseURL)
+	}
+
+	if len(cfg.Projects) == 1 && cfg.DefaultProject == cfg.Projects[0] && os.Getenv("OPENGROK_MCP_DEFAULT_PROJECT") == "" {
+		log.Printf("startup config: default project=%s (derived from single project list)", cfg.DefaultProject)
+	} else {
+		log.Printf("startup config: default project=%s", cfg.DefaultProject)
+	}
+
+	// Explicit overrides
+	envVars := []string{
+		"OPENGROK_MCP_TRANSPORT", "OPENGROK_MCP_TOOL_SURFACE", "OPENGROK_MCP_LISTEN",
+		"OPENGROK_MCP_BASE_URL", "OPENGROK_MCP_WEB_BASE_URL",
+		"OPENGROK_MCP_API_TOKEN", "OPENGROK_MCP_BASIC_AUTH_TOKEN",
+		"OPENGROK_MCP_PROJECTS", "OPENGROK_MCP_PROBE_FILE", "OPENGROK_MCP_DEFAULT_PROJECT",
+		"OPENGROK_MCP_LOG_LEVEL", "OPENGROK_MCP_PROJECT_REQUIRED",
+		"OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY", "OPENGROK_MCP_AUTO_EXPAND_CONTEXT",
+		"OPENGROK_MCP_CONTEXT_BEFORE", "OPENGROK_MCP_CONTEXT_AFTER",
+		"OPENGROK_MCP_MAX_EXPANDED_RESULTS", "OPENGROK_MCP_MAX_EXPANDED_FILES",
+		"OPENGROK_MCP_CONTEXT_FETCH_CONCURRENCY",
+		"OPENGROK_MCP_RETRY_MAX_ATTEMPTS", "OPENGROK_MCP_RETRY_BASE_DELAY",
+		"OPENGROK_MCP_MEMORY_ENABLED", "DEBUG",
+	}
+	var overrideNames []string
+	for _, env := range envVars {
+		if os.Getenv(env) != "" {
+			overrideNames = append(overrideNames, env)
+		}
+	}
+	if len(overrideNames) > 0 {
+		log.Printf("startup config: explicit overrides: %s", strings.Join(overrideNames, ", "))
+	}
+
+	// Enabled capabilities
+	log.Printf("startup config: capabilities list_projects=%t search_code=%t search_symbol_definitions=%t search_symbol_references=%t get_file_context=%t list_symbols=%t list_files=%t server_side_sort=%t memory=%t",
+		cfg.Capabilities.ListProjects, cfg.Capabilities.SearchCode, cfg.Capabilities.SearchSymbolDefinitions,
+		cfg.Capabilities.SearchSymbolReferences, cfg.Capabilities.GetFileContext, cfg.Capabilities.ListSymbols,
+		cfg.Capabilities.ListFiles, cfg.Capabilities.ServerSideSort, cfg.Capabilities.Memory)
+
+	// Tool surface
+	log.Printf("startup config: tool surface=%s", cfg.ToolSurface)
+
+	// Retry policy
+	log.Printf("startup config: retry policy max_attempts=%d base_delay=%s", cfg.RetryMaxAttempts, cfg.RetryBaseDelay)
+
+	// Expansion budgets
+	log.Printf("startup config: expansion budgets max_expanded_results=%d max_expanded_files=%d context_before=%d context_after=%d",
+		cfg.MaxExpandedResults, cfg.MaxExpandedFiles, cfg.ContextBefore, cfg.ContextAfter)
+
+	log.Printf("startup config: cache%s", cacheStats)
 }

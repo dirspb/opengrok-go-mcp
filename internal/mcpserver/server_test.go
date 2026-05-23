@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rokasklive/opengrok-go-mcp/internal/config"
@@ -28,10 +29,20 @@ type fakeBackend struct {
 	fileContents  map[string]string // key: "project:filePath"
 	fileErr       error
 	fileErrors    map[string]error // key: "project:filePath"
+	panicFileRead bool
 	fileProject   string
 	filePath      string
 	fileCallCount int
 	mu            sync.Mutex
+
+	fileEntries       []opengrok.FileEntry
+	fileListProject   string
+	fileListPath      string
+	fileListErr       error
+	fileListTruncated bool
+
+	projectOverview    opengrok.ProjectOverview
+	projectOverviewErr error
 }
 
 func (b *fakeBackend) ListProjects(context.Context) ([]string, error) {
@@ -50,6 +61,9 @@ func (b *fakeBackend) Search(_ context.Context, req opengrok.SearchRequest) (ope
 }
 
 func (b *fakeBackend) FileContent(_ context.Context, project string, filePath string) (string, error) {
+	if b.panicFileRead {
+		panic("file decoder panic")
+	}
 	b.mu.Lock()
 	b.fileProject = project
 	b.filePath = filePath
@@ -70,6 +84,27 @@ func (b *fakeBackend) FileContent(_ context.Context, project string, filePath st
 		}
 	}
 	return b.fileContent, nil
+}
+
+func (b *fakeBackend) ListFiles(_ context.Context, project string, path string) ([]opengrok.FileEntry, error) {
+	b.fileListProject = project
+	b.fileListPath = path
+	if b.fileListErr != nil {
+		return nil, b.fileListErr
+	}
+	return b.fileEntries, nil
+}
+
+func (b *fakeBackend) ListFilesWithMetadata(ctx context.Context, project string, path string) ([]opengrok.FileEntry, bool, error) {
+	entries, err := b.ListFiles(ctx, project, path)
+	return entries, b.fileListTruncated, err
+}
+
+func (b *fakeBackend) GetProjectOverview(_ context.Context, project string) (opengrok.ProjectOverview, error) {
+	if b.projectOverviewErr != nil {
+		return opengrok.ProjectOverview{}, b.projectOverviewErr
+	}
+	return b.projectOverview, nil
 }
 
 func TestReadFileResourceMatchesSlashContainingPath(t *testing.T) {
@@ -392,7 +427,7 @@ func TestSearchCodeUsesDefaultProjectAndBuildsNextCursor(t *testing.T) {
 					Project:    "platform",
 					FilePath:   "src/Engine.swift",
 					LineNumber: 42,
-					Snippet:    "final class Engine {}",
+					Snippet:    strPtr("final class Engine {}"),
 				},
 			},
 		},
@@ -524,7 +559,7 @@ func TestSearchCodeProjectRequiredFalseAllowsAllProjectSearch(t *testing.T) {
 					Project:    "platform",
 					FilePath:   "src/Engine.swift",
 					LineNumber: 42,
-					Snippet:    "final class Engine {}",
+					Snippet:    strPtr("final class Engine {}"),
 				},
 			},
 		},
@@ -745,7 +780,7 @@ func TestSearchSymbolDefinitionsUsesDefinitionModeAndSetsSymbolKind(t *testing.T
 					Project:    "platform",
 					FilePath:   "src/Engine.swift",
 					LineNumber: 42,
-					Snippet:    "final class Engine {}",
+					Snippet:    strPtr("final class Engine {}"),
 				},
 			},
 		},
@@ -827,6 +862,7 @@ func TestNewMCPServerRegistersOnlyEnabledTools(t *testing.T) {
 		SearchSymbolDefinitions: true,
 		SearchSymbolReferences:  true,
 		GetFileContext:          true,
+		Memory:                  true,
 	}
 	server := NewMCPServer(cfg, &fakeBackend{}, "test")
 	clientSession, cleanup := connectMCPServer(t, server)
@@ -841,7 +877,7 @@ func TestNewMCPServerRegistersOnlyEnabledTools(t *testing.T) {
 	for _, tool := range tools.Tools {
 		got = append(got, tool.Name)
 	}
-	want := []string{"search_code", "search_symbol_definitions", "search_symbol_references", "get_file_context", "read_file"}
+	want := []string{"search_code", "search_symbol_definitions", "search_symbol_references", "get_file_context", "read_file", "search_and_read", "find_symbol_and_references", "search_implementations", "search_cross_project_references", "memory_set", "memory_get", "memory_list", "memory_delete", "memory_clear"}
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
@@ -849,9 +885,83 @@ func TestNewMCPServerRegistersOnlyEnabledTools(t *testing.T) {
 	}
 }
 
+func TestCompactSurfaceDoesNotExposeContentOrMemoryWithoutCapabilities(t *testing.T) {
+	cfg := testConfig()
+	cfg.ToolSurface = config.ToolSurfaceCompact
+	cfg.Capabilities = config.Capabilities{
+		SearchCode:              true,
+		SearchSymbolDefinitions: true,
+		SearchSymbolReferences:  true,
+	}
+	server := NewMCPServer(cfg, &fakeBackend{}, "test")
+	clientSession, cleanup := connectMCPServer(t, server)
+	defer cleanup()
+
+	tools, err := clientSession.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools returned error: %v", err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name == "opengrok_compound" || tool.Name == "opengrok_memory" {
+			t.Fatalf("tool %q registered without required capability", tool.Name)
+		}
+	}
+}
+
+func TestGatewayRegistryDoesNotExposeContentOrMemoryWithoutCapabilities(t *testing.T) {
+	cfg := testConfig()
+	cfg.Capabilities = config.Capabilities{
+		SearchCode:              true,
+		SearchSymbolDefinitions: true,
+		SearchSymbolReferences:  true,
+	}
+	registry := buildGatewayRegistry(NewService(cfg, &fakeBackend{}), cfg)
+
+	for _, operation := range []string{
+		"compound.search_and_read",
+		"compound.find_symbol_and_references",
+		"memory.set",
+		"memory.get",
+		"memory.list",
+		"memory.delete",
+		"memory.clear",
+	} {
+		if _, ok := registry[operation]; ok {
+			t.Fatalf("operation %q registered without required capability", operation)
+		}
+	}
+}
+
+func TestHTTPTransportDoesNotExposeProcessScopedMemory(t *testing.T) {
+	cfg := testConfig()
+	cfg.Transport = config.TransportHTTP
+	cfg.Capabilities = config.Capabilities{Memory: true}
+	server := NewMCPServer(cfg, &fakeBackend{}, "test")
+	clientSession, cleanup := connectMCPServer(t, server)
+	defer cleanup()
+
+	tools, err := clientSession.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools returned error: %v", err)
+	}
+	for _, tool := range tools.Tools {
+		if strings.HasPrefix(tool.Name, "memory_") {
+			t.Fatalf("process-scoped memory tool %q exposed over HTTP", tool.Name)
+		}
+	}
+
+	cfg.ToolSurface = config.ToolSurfaceGateway
+	registry := buildGatewayRegistry(NewService(cfg, &fakeBackend{}), cfg)
+	if _, ok := registry["memory.get"]; ok {
+		t.Fatal("process-scoped memory gateway operation exposed over HTTP")
+	}
+}
+
 func TestNewMCPServerSearchCursorIsOptionalInToolSchema(t *testing.T) {
 	cfg := testConfig()
-	cfg.Capabilities = config.Capabilities{SearchSymbolDefinitions: true}
+	cfg.Capabilities = config.Capabilities{
+		SearchSymbolDefinitions: true,
+	}
 	server := NewMCPServer(cfg, &fakeBackend{}, "test")
 	clientSession, cleanup := connectMCPServer(t, server)
 	defer cleanup()
@@ -1250,8 +1360,7 @@ func TestExpandResultContextsAttachesWindow(t *testing.T) {
 	results := []Result{
 		{Project: "platform", FilePath: "src/Foo.java", LineNumber: 6},
 	}
-	got := service.expandResultContexts(context.Background(), results)
-
+	got := service.expandResultContexts(context.Background(), results, cfg.BudgetTiers.Default)
 	if got[0].Context == nil {
 		t.Fatal("Context is nil, want non-nil")
 	}
@@ -1274,13 +1383,15 @@ func TestExpandResultContextsDeduplicatesFileByProject(t *testing.T) {
 	cfg := testConfig()
 	cfg.ContextBefore = 1
 	cfg.ContextAfter = 1
+	cfg.BudgetTiers.Default.ContextBefore = 1
+	cfg.BudgetTiers.Default.ContextAfter = 1
 	service := NewService(cfg, backend)
 
 	results := []Result{
 		{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2},
 		{Project: "platform", FilePath: "src/Foo.java", LineNumber: 4},
 	}
-	got := service.expandResultContexts(context.Background(), results)
+	got := service.expandResultContexts(context.Background(), results, cfg.BudgetTiers.Default)
 
 	if backend.fileCallCount != 1 {
 		t.Fatalf("FileContent called %d times, want 1", backend.fileCallCount)
@@ -1306,13 +1417,17 @@ func TestExpandResultContextsDifferentProjectsSamePath(t *testing.T) {
 	cfg := testConfig()
 	cfg.ContextBefore = 0
 	cfg.ContextAfter = 0
+	cfg.BudgetTiers.Default.ContextBefore = 0
+	cfg.BudgetTiers.Default.ContextAfter = 0
+	cfg.BudgetTiers.Default.MaxExpandedResults = 10
+	cfg.BudgetTiers.Default.MaxExpandedFiles = 5
 	service := NewService(cfg, backend)
 
 	results := []Result{
 		{Project: "alpha", FilePath: "src/Foo.java", LineNumber: 2},
 		{Project: "beta", FilePath: "src/Foo.java", LineNumber: 2},
 	}
-	got := service.expandResultContexts(context.Background(), results)
+	got := service.expandResultContexts(context.Background(), results, cfg.BudgetTiers.Default)
 
 	if backend.fileCallCount != 2 {
 		t.Fatalf("FileContent called %d times, want 2", backend.fileCallCount)
@@ -1346,7 +1461,7 @@ func TestExpandResultContextsFetchErrorLeavesContextNil(t *testing.T) {
 		{Project: "platform", FilePath: "src/Bad.java", LineNumber: 1},
 		{Project: "platform", FilePath: "src/Good.java", LineNumber: 2},
 	}
-	got := service.expandResultContexts(context.Background(), results)
+	got := service.expandResultContexts(context.Background(), results, cfg.BudgetTiers.Default)
 
 	if got[0].Context != nil {
 		t.Fatalf("result[0].Context = %+v, want nil (fetch failed)", got[0].Context)
@@ -1368,7 +1483,7 @@ func TestExpandResultContextsWindowClampsAtFileBoundary(t *testing.T) {
 	results := []Result{
 		{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2},
 	}
-	got := service.expandResultContexts(context.Background(), results)
+	got := service.expandResultContexts(context.Background(), results, cfg.BudgetTiers.Default)
 
 	if got[0].Context == nil {
 		t.Fatal("Context is nil")
@@ -1386,7 +1501,7 @@ func TestSearchCodeExpandContextDefaultOn(t *testing.T) {
 		searchResult: opengrok.SearchResult{
 			TotalHits: 1,
 			Hits: []opengrok.Hit{
-				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2, Snippet: "foo"},
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2, Snippet: strPtr("foo")},
 			},
 		},
 		fileContent: "one\ntwo\nthree\n",
@@ -1413,7 +1528,7 @@ func TestSearchCodeExpandContextFalseSkipsExpand(t *testing.T) {
 		searchResult: opengrok.SearchResult{
 			TotalHits: 1,
 			Hits: []opengrok.Hit{
-				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2, Snippet: "foo"},
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2, Snippet: strPtr("foo")},
 			},
 		},
 		fileContent: "one\ntwo\nthree\n",
@@ -1446,7 +1561,7 @@ func TestSearchCodeExpandContextTrueOverridesConfigFalse(t *testing.T) {
 		searchResult: opengrok.SearchResult{
 			TotalHits: 1,
 			Hits: []opengrok.Hit{
-				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2, Snippet: "foo"},
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 2, Snippet: strPtr("foo")},
 			},
 		},
 		fileContent: "one\ntwo\nthree\n",
@@ -1475,7 +1590,7 @@ func TestSearchSymbolDefinitionsExpandContext(t *testing.T) {
 		searchResult: opengrok.SearchResult{
 			TotalHits: 1,
 			Hits: []opengrok.Hit{
-				{Project: "platform", FilePath: "src/Bar.java", LineNumber: 1, Snippet: "class Bar"},
+				{Project: "platform", FilePath: "src/Bar.java", LineNumber: 1, Snippet: strPtr("class Bar")},
 			},
 		},
 		fileContent: "class Bar {\n}\n",
@@ -1542,9 +1657,9 @@ func TestListSymbolsFiltersHitsByKind(t *testing.T) {
 		searchResult: opengrok.SearchResult{
 			TotalHits: 3,
 			Hits: []opengrok.Hit{
-				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 10, Snippet: "class Foo {}", Tag: "class"},
-				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 20, Snippet: "void doIt() {}", Tag: "function"},
-				{Project: "platform", FilePath: "src/Bar.java", LineNumber: 5, Snippet: "class Bar {}", Tag: "class"},
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 10, Snippet: strPtr("class Foo {}"), Tag: "class"},
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 20, Snippet: strPtr("void doIt() {}"), Tag: "function"},
+				{Project: "platform", FilePath: "src/Bar.java", LineNumber: 5, Snippet: strPtr("class Bar {}"), Tag: "class"},
 			},
 		},
 	}
@@ -1576,9 +1691,9 @@ func TestListSymbolsNoKindFilterReturnsAllHits(t *testing.T) {
 		searchResult: opengrok.SearchResult{
 			TotalHits: 3,
 			Hits: []opengrok.Hit{
-				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 10, Snippet: "class Foo {}", Tag: "class"},
-				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 20, Snippet: "void doIt() {}", Tag: "function"},
-				{Project: "platform", FilePath: "src/Bar.java", LineNumber: 5, Snippet: "class Bar {}", Tag: "class"},
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 10, Snippet: strPtr("class Foo {}"), Tag: "class"},
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 20, Snippet: strPtr("void doIt() {}"), Tag: "function"},
+				{Project: "platform", FilePath: "src/Bar.java", LineNumber: 5, Snippet: strPtr("class Bar {}"), Tag: "class"},
 			},
 		},
 	}
@@ -1629,7 +1744,7 @@ func TestListSymbolsIncludeSnippetsFalseNullsSnippet(t *testing.T) {
 		searchResult: opengrok.SearchResult{
 			TotalHits: 1,
 			Hits: []opengrok.Hit{
-				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 10, Snippet: "class Foo {}", Tag: "class"},
+				{Project: "platform", FilePath: "src/Foo.java", LineNumber: 10, Snippet: strPtr("class Foo {}"), Tag: "class"},
 			},
 		},
 	}
@@ -1667,8 +1782,8 @@ func TestSearchCodeResultKindComesFromHitTag(t *testing.T) {
 		searchResult: opengrok.SearchResult{
 			TotalHits: 2,
 			Hits: []opengrok.Hit{
-				{Project: "platform", FilePath: "src/Engine.swift", LineNumber: 1, Snippet: "class Engine {}", Tag: "class"},
-				{Project: "platform", FilePath: "src/run.swift", LineNumber: 5, Snippet: "func run() {}", Tag: ""},
+				{Project: "platform", FilePath: "src/Engine.swift", LineNumber: 1, Snippet: strPtr("class Engine {}"), Tag: "class"},
+				{Project: "platform", FilePath: "src/run.swift", LineNumber: 5, Snippet: strPtr("func run() {}"), Tag: ""},
 			},
 		},
 	}
@@ -1692,9 +1807,81 @@ func TestSearchCodeResultKindComesFromHitTag(t *testing.T) {
 	}
 }
 
+func TestListFilesReportsBackendTruncation(t *testing.T) {
+	backend := &fakeBackend{
+		fileEntries:       []opengrok.FileEntry{{Path: "src/main.go"}},
+		fileListTruncated: true,
+	}
+	service := NewService(testConfig(), backend)
+
+	output, err := service.ListFiles(context.Background(), ListFilesInput{})
+	if err != nil {
+		t.Fatalf("ListFiles error = %v", err)
+	}
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("marshal ListFiles output: %v", err)
+	}
+	if !strings.Contains(string(data), `"truncated":true`) {
+		t.Fatalf("ListFiles output = %s, want truncated=true", data)
+	}
+	if output.Warning == nil {
+		t.Fatal("ListFiles warning is nil, want truncation warning")
+	}
+}
+
+func TestProjectOverviewReportsBackendTruncation(t *testing.T) {
+	backend := &fakeBackend{
+		fileEntries:       []opengrok.FileEntry{{Path: "src/main.go"}},
+		fileListTruncated: true,
+	}
+	service := NewService(testConfig(), backend)
+
+	output, err := service.GetProjectOverview(context.Background(), ProjectOverviewInput{})
+	if err != nil {
+		t.Fatalf("GetProjectOverview error = %v", err)
+	}
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("marshal project overview output: %v", err)
+	}
+	if !strings.Contains(string(data), `"truncated":true`) {
+		t.Fatalf("ProjectOverview output = %s, want truncated=true", data)
+	}
+	if output.Warning == nil {
+		t.Fatal("ProjectOverview warning is nil, want truncation warning")
+	}
+}
+
+func TestExpandResultContextsRecoversBackendPanic(t *testing.T) {
+	service := NewService(testConfig(), &fakeBackend{panicFileRead: true})
+	results := []Result{{Project: "platform", FilePath: "src/main.go", LineNumber: 1}}
+	done := make(chan *ExpansionDiagnostics, 1)
+
+	go func() {
+		_, diagnostics := service.expandResultContextsWithDiagnostics(
+			context.Background(),
+			results,
+			testConfig().BudgetTiers.Default,
+		)
+		done <- diagnostics
+	}()
+
+	select {
+	case diagnostics := <-done:
+		if diagnostics.ExpandedResults != 0 {
+			t.Fatalf("ExpandedResults = %d, want 0 after recovered panic", diagnostics.ExpandedResults)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("context expansion hung after backend panic")
+	}
+}
+
 func testConfig() config.Config {
 	cfg := config.Default()
 	cfg.OpenGrokWebBaseURL = "https://grok.example.com/source"
 	cfg.DefaultProject = "platform"
 	return cfg
 }
+
+func strPtr(s string) *string { return &s }

@@ -1,12 +1,56 @@
 package cursor
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
+
+var Secret string
+
+func signPayload(data []byte) string {
+	payload := base64.RawURLEncoding.EncodeToString(data)
+	if Secret == "" {
+		return payload
+	}
+	mac := hmac.New(sha256.New, []byte(Secret))
+	mac.Write(data)
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return payload + "." + sig
+}
+
+func verifyPayload(value string) ([]byte, error) {
+	dotIdx := strings.LastIndex(value, ".")
+	if Secret != "" && dotIdx < 0 {
+		return nil, errors.New("INVALID_CURSOR: signature required when secret is configured")
+	}
+
+	payload := value
+	if dotIdx >= 0 {
+		payload = value[:dotIdx]
+	}
+
+	data, err := base64.RawURLEncoding.DecodeString(payload)
+	if err != nil {
+		return nil, fmt.Errorf("decode cursor base64: %w", err)
+	}
+
+	if Secret != "" {
+		mac := hmac.New(sha256.New, []byte(Secret))
+		mac.Write(data)
+		expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+		if !hmac.Equal([]byte(value[dotIdx+1:]), []byte(expected)) {
+			return nil, errors.New("INVALID_CURSOR: signature mismatch")
+		}
+	}
+
+	return data, nil
+}
 
 type State struct {
 	Project    string   `json:"project"`
@@ -24,14 +68,13 @@ func Encode(state State) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal cursor state: %w", err)
 	}
-
-	return base64.RawURLEncoding.EncodeToString(data), nil
+	return signPayload(data), nil
 }
 
 func Decode(value string) (State, error) {
-	data, err := base64.RawURLEncoding.DecodeString(value)
+	data, err := verifyPayload(value)
 	if err != nil {
-		return State{}, fmt.Errorf("decode cursor base64: %w", err)
+		return State{}, err
 	}
 
 	var state State
@@ -72,13 +115,13 @@ func EncodeProjects(state ProjectsState) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal projects cursor state: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(data), nil
+	return signPayload(data), nil
 }
 
 func DecodeProjects(value string) (ProjectsState, error) {
-	data, err := base64.RawURLEncoding.DecodeString(value)
+	data, err := verifyPayload(value)
 	if err != nil {
-		return ProjectsState{}, fmt.Errorf("decode projects cursor base64: %w", err)
+		return ProjectsState{}, err
 	}
 	var state ProjectsState
 	if err := json.Unmarshal(data, &state); err != nil {
@@ -105,13 +148,13 @@ func EncodeFile(state FileState) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal file cursor state: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(data), nil
+	return signPayload(data), nil
 }
 
 func DecodeFile(value string) (FileState, error) {
-	data, err := base64.RawURLEncoding.DecodeString(value)
+	data, err := verifyPayload(value)
 	if err != nil {
-		return FileState{}, fmt.Errorf("decode file cursor base64: %w", err)
+		return FileState{}, err
 	}
 	var state FileState
 	if err := json.Unmarshal(data, &state); err != nil {
@@ -122,6 +165,42 @@ func DecodeFile(value string) (FileState, error) {
 	}
 	if state.PageSize < 1 {
 		return FileState{}, fmt.Errorf("invalid cursor page size %d: must be >= 1", state.PageSize)
+	}
+	return state, nil
+}
+
+type FileListState struct {
+	Project  string `json:"project"`
+	Path     string `json:"path"`
+	Offset   int    `json:"offset"`
+	PageSize int    `json:"page_size"`
+}
+
+func EncodeFileList(state FileListState) (string, error) {
+	data, err := json.Marshal(state)
+	if err != nil {
+		return "", fmt.Errorf("marshal file list cursor state: %w", err)
+	}
+	return signPayload(data), nil
+}
+
+func DecodeFileList(value string) (FileListState, error) {
+	data, err := verifyPayload(value)
+	if err != nil {
+		return FileListState{}, err
+	}
+	var state FileListState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return FileListState{}, fmt.Errorf("unmarshal file list cursor state: %w", err)
+	}
+	if state.Project == "" {
+		return FileListState{}, fmt.Errorf("invalid cursor project: must not be empty")
+	}
+	if state.Offset < 0 {
+		return FileListState{}, fmt.Errorf("invalid cursor offset %d: must be >= 0", state.Offset)
+	}
+	if state.PageSize < 1 {
+		return FileListState{}, fmt.Errorf("invalid cursor page size %d: must be >= 1", state.PageSize)
 	}
 	return state, nil
 }
