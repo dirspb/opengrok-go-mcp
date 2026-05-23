@@ -17,14 +17,23 @@ This document describes current operational limitations of `opengrok-go-mcp`.
   requested `path` for large projects.
 
 - **`list_symbols` kind filtering is page-local.** OpenGrok supplies a page of
-  definition matches and the MCP filters that page by ctags `kind`.
-  `filtered_total_hits` describes the returned page, not a complete
-  kind-filtered inventory. Continue with `next_cursor` or narrow
-  `path_prefix`.
+  definition matches and the MCP filters that page by ctags `kind`; OpenGrok has
+  no server-side ctags-kind filter. `total_hits` therefore counts all definitions
+  *before* the kind filter, and a global kind-filtered inventory is not available
+  in one call. The response counts the kind matches on the current page and warns
+  when a `kind` filter is active with more pages. Continue with `next_cursor` or
+  narrow `path_prefix`.
 
 - **`search_implementations` is best-effort.** OpenGrok does not expose
   language-semantic implementation relationships. This operation returns
   candidate symbol-reference matches, not guaranteed implementations.
+
+- **No structural or AST-aware search.** OpenGrok is a full-text index plus ctags
+  *definition* metadata. It does not model relationships (`extends`, `implements`,
+  call graphs) and exposes no AST query. There is intentionally no `ast_query` tool,
+  and this server has no local source checkout to run one. For structural questions,
+  use OpenGrok to scope to packages, then a local AST tool (e.g. ast-grep) for
+  precise matching — see "Recommended Workflows" in the README.
 
 - **Search sorting is page-local.** `sort=path` sorts only results fetched for
   the current page. `sort=date` preserves OpenGrok order and returns a
