@@ -220,3 +220,11 @@ Avoid passing secrets as CLI flags. Use environment variables for OpenGrok auth 
 
 - **MCP Go SDK is pre-1.0.** Breaking changes may occur on SDK upgrades. The pinned
   version is noted in `go.mod`; review release notes before upgrading.
+
+## License
+
+`opengrok-go-mcp` is licensed under the Apache License 2.0 (`Apache-2.0`) for
+new releases starting with `v0.3.0-beta.2`.
+
+Earlier published releases up to and including `v0.3.0-beta.1` were released
+under `CC0-1.0` and remain available under those terms.
