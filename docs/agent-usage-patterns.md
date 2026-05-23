@@ -1,5 +1,10 @@
 # Agent Usage Patterns
 
+**Document status:** live — this file is tracked by git and reflects the
+current stable surface. If you are iterating on a pre-release branch, check for
+uncommitted changes or a newer version in the working tree before treating this
+as authoritative.
+
 This document describes effective patterns for AI agents using the
 opengrok-go-mcp server. These patterns apply to both compact and full tool
 surfaces — adjust the tool names as needed.
