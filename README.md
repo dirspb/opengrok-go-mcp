@@ -203,6 +203,36 @@ Resources are exposed only when the matching capability is enabled:
 - `opengrok://project/{project}`
 - `opengrok://project/{project}/files/{+path}`
 
+## Recommended Workflows
+
+### Structural queries (subclasses, implementers, call graphs)
+
+OpenGrok indexes full text plus ctags **definitions** — it knows where a class or
+method is *defined*, but not relationships like `extends`, `implements`, or call
+edges. For structural questions, combine two tools:
+
+1. Use `search_symbol_definitions` or `list_symbols` (with `path_prefix` / `kind`)
+   to find the relevant package(s) and narrow scope — OpenGrok answers *"where is it?"* well.
+2. Run a local AST tool (e.g. [ast-grep](https://ast-grep.github.io)) scoped to those
+   paths for precise structural matching — *"what are the relationships?"*
+
+A full-text search for `extends BillingAccount` returns every textual hit (fields,
+parameters, comments), not just subclasses. The two-step workflow above replaces the
+"search → truncate → grep → repeat" loop.
+
+### Reading pagination
+
+Every paginated tool (`search_*`, `list_symbols`, `list_files`) returns top-level
+pagination fields:
+
+- `has_more` — `true` if more pages exist; fetch them by passing `next_cursor`.
+- `page` / `total_pages` — your position, e.g. page 1 of 3.
+- `total_hits` — the global, unfiltered match count from OpenGrok.
+
+For `list_symbols` with a `kind` filter, `total_hits` counts definitions *before*
+the kind filter (OpenGrok cannot filter by ctags kind server-side). A `warning`
+makes this explicit; narrow with `path_prefix` to enumerate a kind fully.
+
 ## Recommended Configuration
 
 Choose the setup that matches your usage:
