@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package mcpserver
+
+import "testing"
+
+func TestNormalizeCodeQuery(t *testing.T) {
+	tests := []struct {
+		name          string
+		query         string
+		tokenized     bool
+		wantNormalized string
+		wantAutoQuoted bool
+	}{
+		{"bare multi-word is quoted", "extends PaymentProcessor", false, `"extends PaymentProcessor"`, true},
+		{"single word unchanged", "PaymentProcessor", false, "PaymentProcessor", false},
+		{"already quoted unchanged", `"extends PaymentProcessor"`, false, `"extends PaymentProcessor"`, false},
+		{"plus operator unchanged", "+Payment -test", false, "+Payment -test", false},
+		{"minus operator unchanged", "foo -bar", false, "foo -bar", false},
+		{"field syntax unchanged", "defs:Foo bar", false, "defs:Foo bar", false},
+		{"wildcard star unchanged", "Payment* Service", false, "Payment* Service", false},
+		{"wildcard question unchanged", "Payment? Service", false, "Payment? Service", false},
+		{"AND boolean unchanged", "Foo AND Bar", false, "Foo AND Bar", false},
+		{"OR boolean unchanged", "Foo OR Bar", false, "Foo OR Bar", false},
+		{"NOT boolean unchanged", "Foo NOT Bar", false, "Foo NOT Bar", false},
+		{"word containing AND still quoted", "Android build", false, `"Android build"`, true},
+		{"tokenized opt-out unchanged", "extends PaymentProcessor", true, "extends PaymentProcessor", false},
+		{"empty unchanged", "", false, "", false},
+		{"whitespace trimmed and not quoted", "  PaymentProcessor  ", false, "PaymentProcessor", false},
+		{"leading/trailing space around phrase is quoted trimmed", "  extends PaymentProcessor  ", false, `"extends PaymentProcessor"`, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotNorm, gotAuto := normalizeCodeQuery(tt.query, tt.tokenized)
+			if gotNorm != tt.wantNormalized {
+				t.Errorf("normalized = %q, want %q", gotNorm, tt.wantNormalized)
+			}
+			if gotAuto != tt.wantAutoQuoted {
+				t.Errorf("autoQuoted = %v, want %v", gotAuto, tt.wantAutoQuoted)
+			}
+		})
+	}
+}
+
+func TestIsMultiWord(t *testing.T) {
+	if isMultiWord("one") {
+		t.Error("single word reported multi-word")
+	}
+	if !isMultiWord("one two") {
+		t.Error("two words not reported multi-word")
+	}
+	if isMultiWord("   ") {
+		t.Error("whitespace-only reported multi-word")
+	}
+}
