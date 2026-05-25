@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/rokasklive/opengrok-go-mcp/internal/config"
 	"github.com/rokasklive/opengrok-go-mcp/internal/cursor"
@@ -2353,3 +2354,24 @@ func testConfig() config.Config {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestSearchCodeInputSchemaRequiredFields(t *testing.T) {
+	schema, err := jsonschema.For[SearchCodeInput](nil)
+	if err != nil {
+		t.Fatalf("infer SearchCodeInput schema: %v", err)
+	}
+	if !slices.Contains(schema.Required, "query") {
+		t.Errorf("query should be required, required=%v", schema.Required)
+	}
+	for _, field := range []string{"file_type", "path_prefix", "page_size"} {
+		if slices.Contains(schema.Required, field) {
+			t.Errorf("%s should NOT be required, required=%v", field, schema.Required)
+		}
+	}
+	if _, ok := schema.Properties["tokenized"]; !ok {
+		t.Errorf("tokenized property missing from schema")
+	}
+	if _, ok := schema.Properties["path_exclude"]; !ok {
+		t.Errorf("path_exclude property missing from schema")
+	}
+}
