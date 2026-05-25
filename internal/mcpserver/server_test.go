@@ -2375,3 +2375,24 @@ func TestSearchCodeInputSchemaRequiredFields(t *testing.T) {
 		t.Errorf("path_exclude property missing from schema")
 	}
 }
+
+func TestSearchAndReadInputSchemaRequiredFields(t *testing.T) {
+	schema, err := jsonschema.For[SearchAndReadInput](nil)
+	if err != nil {
+		t.Fatalf("infer SearchAndReadInput schema: %v", err)
+	}
+	if !slices.Contains(schema.Required, "query") {
+		t.Errorf("query should be required, required=%v", schema.Required)
+	}
+	for _, field := range []string{"file_type", "path_prefix", "page_size"} {
+		if slices.Contains(schema.Required, field) {
+			t.Errorf("%s should NOT be required, required=%v", field, schema.Required)
+		}
+	}
+	if _, ok := schema.Properties["tokenized"]; !ok {
+		t.Errorf("tokenized property missing from schema")
+	}
+	if _, ok := schema.Properties["path_exclude"]; !ok {
+		t.Errorf("path_exclude property missing from schema")
+	}
+}

@@ -374,10 +374,10 @@ type CompactMemoryInput struct {
 }
 
 type SearchAndReadInput struct {
-	Project          string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override"`
-	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides"`
+	Project          string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
+	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
 	Query            string   `json:"query" jsonschema:"REQUIRED. The search query. Multi-word queries are auto-quoted as an exact phrase by default (set tokenized true to opt out). Inline Lucene syntax is supported."`
-	Mode             string   `json:"mode,omitempty" jsonschema:"optional search field: full_text (default), path, history, definition, or reference"`
+	Mode             string   `json:"mode,omitempty" jsonschema:"optional search field: full_text (default), path, history, definition, or reference. Use path for file-name searches."`
 	PathPrefix       string   `json:"path_prefix,omitempty" jsonschema:"optional path substring to restrict results TO"`
 	FileType         string   `json:"file_type,omitempty" jsonschema:"optional file extension/type filter; omit to search all file types"`
 	Tokenized        *bool    `json:"tokenized,omitempty" jsonschema:"optional. By default a multi-word query with no operators is auto-quoted as an exact phrase; set true to search the words as independent terms."`
@@ -388,7 +388,7 @@ type SearchAndReadInput struct {
 	IncludeLinks     *bool    `json:"include_links,omitempty" jsonschema:"optional; set false to omit display/raw URLs"`
 	IncludeSnippets  *bool    `json:"include_snippets,omitempty" jsonschema:"optional; set false to omit match snippets"`
 	ResponseMode     string   `json:"response_mode,omitempty" jsonschema:"optional response detail level: full (default) or compact"`
-	ContextBudget    string   `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal, default, or maximal"`
+	ContextBudget    string   `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
 	Cursor           *string  `json:"cursor,omitempty" jsonschema:"optional pagination cursor from a previous response's next_cursor"`
 	PageSize         int      `json:"page_size,omitempty" jsonschema:"optional results per page; omit for the server default"`
 	AllowAllProjects *bool    `json:"allow_all_projects,omitempty" jsonschema:"explicitly allow searching across all projects, bypassing the configured project list"`
