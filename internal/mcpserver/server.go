@@ -778,16 +778,10 @@ func (s *Service) SearchAndRead(ctx context.Context, input SearchAndReadInput) (
 
 	var warning *string
 	if failedReads > 0 {
-		w := fmt.Sprintf("Failed to read %d result files; results may be incomplete.", failedReads)
-		warning = &w
+		warning = appendWarning(warning, fmt.Sprintf("Failed to read %d result files; results may be incomplete.", failedReads))
 	}
 	if searchOutput.Warning != nil {
-		if warning != nil {
-			combined := *warning + " " + *searchOutput.Warning
-			warning = &combined
-		} else {
-			warning = searchOutput.Warning
-		}
+		warning = appendWarning(warning, *searchOutput.Warning)
 	}
 
 	return SearchAndReadOutput{
@@ -2091,14 +2085,7 @@ func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, 
 	if sortErr != nil {
 		return emptySearchOutput(req.mode, req.query), sortErr
 	}
-	if sortWarning != "" {
-		if warning != nil {
-			combined := *warning + " " + sortWarning
-			warning = &combined
-		} else {
-			warning = &sortWarning
-		}
-	}
+	warning = appendWarning(warning, sortWarning)
 	results = sortedResults
 
 	var expansion *ExpansionDiagnostics
