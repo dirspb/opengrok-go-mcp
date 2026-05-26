@@ -1,0 +1,65 @@
+# Release Process
+
+Releases are manual: push a git tag and generate GitHub Release notes from the
+changelog. There is no release CI and no goreleaser config.
+
+## Versioning
+
+Tags follow `vMAJOR.MINOR.PATCH`. The project is pre-1.0, so minor versions may
+carry breaking changes — but each break requires a spec and a migration note
+(see [constitution Principle V](../.specify/memory/constitution.md)).
+
+Beta tags follow `vX.Y.Z-beta.N`.
+
+## Beta Releases
+
+Tag the commit:
+
+```
+git tag vX.Y.Z-beta.N
+git push origin vX.Y.Z-beta.N
+```
+
+Beta behavior may change between beta iterations. README install snippets must
+pin the exact beta tag (e.g. `@v0.3.0-beta.2`).
+
+## Full Releases
+
+Tag the commit:
+
+```
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Then:
+
+1. Update `CHANGELOG.md` with the release entry before tagging.
+2. Create a GitHub Release and paste the changelog entry as the release notes.
+
+## Changelog Rules
+
+`CHANGELOG.md` in the repository root is the source of truth. Format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+> For a full minor release, the changelog summarizes changes since the previous stable minor release, not only since the latest beta. So v0.3.0 is compared against v0.2.0; beta notes are referenced separately.
+
+## Compatibility Notes
+
+Call out any change to a public default, tool schema field, or environment
+variable in the changelog entry. Breaking changes and experimental surface
+changes must also be noted in [`docs/tool-contracts.md`](tool-contracts.md).
+
+## Migration Notes
+
+Any breaking change requires a migration note that tells integrators exactly
+what to update: which env var, field, or default changed, what value to use
+instead, and whether existing behavior can be restored through configuration.
+
+## Pre-Release Checklist
+
+- `go test ./...` passes with no failures.
+- README install snippets pin the new tag.
+- `CHANGELOG.md` is updated with the release entry.
+- [`docs/limitations.md`](limitations.md) reflects current behavior.
+- `git diff --check` is clean (no trailing whitespace).
