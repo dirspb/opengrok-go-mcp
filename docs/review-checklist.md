@@ -29,7 +29,7 @@ review agent. Work through each section before approving or merging a change.
 Any accepted violation of a principle is documented in the plan's Complexity
 Tracking table with the reason and the simpler alternative that was rejected.
 
-See `.specify/memory/constitution.md` for the full rationale of each principle.
+See [`.specify/memory/constitution.md`](../.specify/memory/constitution.md) for the full rationale of each principle.
 
 ## MCP Contract Stability
 
@@ -45,7 +45,7 @@ See `.specify/memory/constitution.md` for the full rationale of each principle.
 - Cross-surface consistency: behavior is coherent across `full`, `compact`, and
   `gateway` surfaces, or a spec explicitly records the divergence.
 
-See `docs/tool-contracts.md` for the field-by-field contract reference.
+See [`tool-contracts.md`](tool-contracts.md) for the field-by-field contract reference.
 
 ## OpenGrok Semantic Honesty
 
@@ -60,7 +60,7 @@ See `docs/tool-contracts.md` for the field-by-field contract reference.
 - Fresh-subagent usability findings captured for agent-facing changes, with a
   realistic task and minimal upfront context.
 
-See `docs/limitations.md` for the complete list of known limitations.
+See [`limitations.md`](limitations.md) for the complete list of known limitations.
 
 ## Security Posture
 
@@ -72,7 +72,7 @@ See `docs/limitations.md` for the complete list of known limitations.
   documented with risk, and not silently activated.
 - Memory tools remain disabled in HTTP mode.
 
-See `SECURITY.md` for the full security policy.
+See [`SECURITY.md`](../SECURITY.md) for the full security policy.
 
 ## Token / Response Budget
 

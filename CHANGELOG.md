@@ -9,6 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ### Added
 - Spec Kit setup: constitution, templates, and contribution-workflow policy.
+- Contributor and project documentation: tool contract reference, agent UX
+  guide, review checklist, release process, changelog, security policy, PR and
+  issue templates, and a documentation source-of-truth map.
 
 ## [0.3.0-beta.2] - 2026-05-26
 

@@ -25,17 +25,18 @@ pin the exact beta tag (e.g. `@v0.3.0-beta.2`).
 
 ## Full Releases
 
-Tag the commit:
-
-```
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
-
-Then:
-
-1. Update `CHANGELOG.md` with the release entry before tagging.
-2. Create a GitHub Release and paste the changelog entry as the release notes.
+1. Update `CHANGELOG.md`: move the `[Unreleased]` entries under a new
+   `[vX.Y.Z] - DATE` heading.
+2. Commit the changelog change:
+   ```
+   git commit -m "chore: release vX.Y.Z"
+   ```
+3. Create and push an annotated tag:
+   ```
+   git tag -a vX.Y.Z -m "vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+4. Create a GitHub Release and generate notes from the changelog entry.
 
 ## Changelog Rules
 
