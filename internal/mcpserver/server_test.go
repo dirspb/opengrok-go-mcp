@@ -2413,6 +2413,21 @@ func TestSymbolSearchInputSchemaRequiredFields(t *testing.T) {
 	}
 }
 
+func TestFileContextInputDocumentsWindowParams(t *testing.T) {
+	schema, err := jsonschema.For[FileContextInput](nil)
+	if err != nil {
+		t.Fatalf("infer FileContextInput schema: %v", err)
+	}
+	if slices.Contains(schema.Required, "line_number") {
+		t.Errorf("line_number should NOT be required, required=%v", schema.Required)
+	}
+	for _, field := range []string{"line_number", "before", "after"} {
+		if prop, ok := schema.Properties[field]; !ok || prop.Description == "" {
+			t.Errorf("%s should be present and documented; got ok=%v", field, ok)
+		}
+	}
+}
+
 func TestSearchCodeAutoQuotesMultiWordQuery(t *testing.T) {
 	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
 	service := NewService(testConfig(), backend)

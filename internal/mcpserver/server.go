@@ -1424,7 +1424,7 @@ func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Serv
 		}
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "get_file_context",
-			Description: "Read a line window around a specific line in an OpenGrok file. Requires line_number from search results. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. For full-file reads use read_file instead. When answering the user about this file, include citation.url.",
+			Description: "Read a line window around a specific line in an OpenGrok file. Pass line_number (e.g. from a search result) to center the window and before/after to size it; if you omit line_number the whole file is returned, but prefer read_file for that. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. When answering the user about this file, include citation.url.",
 			Annotations: readOnlyAnnotations,
 		}, readFile)
 		addTool(server, coercer, &mcp.Tool{

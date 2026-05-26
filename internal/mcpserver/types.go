@@ -149,13 +149,13 @@ type ListProjectsOutput struct {
 
 type FileContextInput struct {
 	Project            string  `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
-	FilePath           string  `json:"file_path" jsonschema:"project-relative file path"`
-	LineNumber         int     `json:"line_number,omitempty"`
-	Before             int     `json:"before,omitempty"`
-	After              int     `json:"after,omitempty"`
-	IncludeAnnotations bool    `json:"include_annotations,omitempty"`
-	IncludeLinks       *bool   `json:"include_links,omitempty"`
-	Cursor             *string `json:"cursor,omitempty"`
+	FilePath           string  `json:"file_path" jsonschema:"REQUIRED. Project-relative file path, e.g. a search result's file_path"`
+	LineNumber         int     `json:"line_number,omitempty" jsonschema:"optional line to center the context window on (e.g. a search result's line_number); omit to read the whole file (paginated via cursor)"`
+	Before             int     `json:"before,omitempty" jsonschema:"optional lines of context before line_number; only applies when line_number is set; 0 uses the budget default"`
+	After              int     `json:"after,omitempty" jsonschema:"optional lines of context after line_number; only applies when line_number is set; 0 uses the budget default"`
+	IncludeAnnotations bool    `json:"include_annotations,omitempty" jsonschema:"optional; set true to include per-line annotation/blame metadata when available"`
+	IncludeLinks       *bool   `json:"include_links,omitempty" jsonschema:"optional; set false to omit display/raw URLs from the result"`
+	Cursor             *string `json:"cursor,omitempty" jsonschema:"optional pagination cursor from a previous response's next_cursor (for full-file reads); pass the same file_path to continue"`
 	ContextBudget      string  `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
 }
 
@@ -180,14 +180,14 @@ type FileContextOutput struct {
 type ListSymbolsInput struct {
 	Project         string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
 	Projects        []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
-	PathPrefix      string   `json:"path_prefix,omitempty"`
-	Kind            string   `json:"kind,omitempty"`
-	Symbol          string   `json:"symbol,omitempty"`
-	FileType        string   `json:"file_type,omitempty"`
-	PageSize        int      `json:"page_size,omitempty"`
-	IncludeLinks    *bool    `json:"include_links,omitempty"`
-	IncludeSnippets *bool    `json:"include_snippets,omitempty"`
-	Cursor          *string  `json:"cursor,omitempty"`
+	PathPrefix      string   `json:"path_prefix,omitempty" jsonschema:"optional path substring to scope the listing to (e.g. \"src/api/\")"`
+	Kind            string   `json:"kind,omitempty" jsonschema:"optional ctags kind filter, e.g. class, interface, function, method, field; omit for all kinds"`
+	Symbol          string   `json:"symbol,omitempty" jsonschema:"optional symbol-name filter, matched as a Lucene term; omit to list all symbols in scope"`
+	FileType        string   `json:"file_type,omitempty" jsonschema:"optional file extension/type filter (e.g. \"java\"); omit for all file types"`
+	PageSize        int      `json:"page_size,omitempty" jsonschema:"optional results per page; omit for the server default"`
+	IncludeLinks    *bool    `json:"include_links,omitempty" jsonschema:"optional; set false to omit display/raw URLs from results"`
+	IncludeSnippets *bool    `json:"include_snippets,omitempty" jsonschema:"optional; set false to omit snippets to reduce token cost on large sweeps"`
+	Cursor          *string  `json:"cursor,omitempty" jsonschema:"optional pagination cursor from a previous response's next_cursor"`
 }
 
 type ListSymbolsOutput struct {
@@ -208,11 +208,11 @@ type SymbolItem struct {
 
 type ListFilesInput struct {
 	Project      string  `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
-	Path         string  `json:"path,omitempty"`
+	Path         string  `json:"path,omitempty" jsonschema:"optional project-relative directory to list (e.g. \"src/api\"); omit for the project root"`
 	Kind         *string `json:"kind,omitempty" jsonschema:"optional filter: file, directory, or both (default)"`
-	PageSize     int     `json:"page_size,omitempty"`
-	Cursor       *string `json:"cursor,omitempty"`
-	IncludeLinks *bool   `json:"include_links,omitempty"`
+	PageSize     int     `json:"page_size,omitempty" jsonschema:"optional results per page; omit for the server default"`
+	Cursor       *string `json:"cursor,omitempty" jsonschema:"optional pagination cursor from a previous response's next_cursor"`
+	IncludeLinks *bool   `json:"include_links,omitempty" jsonschema:"optional; set false to omit display/raw URLs from results"`
 }
 
 type FileItem struct {
