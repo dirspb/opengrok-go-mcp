@@ -1,0 +1,60 @@
+name: Bug Report
+description: Something is incorrect, unreliable, or behaves differently than its tool description.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        See `docs/reporting-issues.md`. Remove secrets, tokens, internal
+        hostnames, and private source content before submitting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: dropdown
+    id: reporter
+    attributes:
+      label: Reporter
+      options:
+        - Human user
+        - AI agent
+        - Human reporting an AI agent experience
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: version/commit, MCP client, transport (stdio/HTTP), tool surface, OpenGrok notes, sanitized config.
+    validations:
+      required: false
+  - type: textarea
+    id: tool-workflow
+    attributes:
+      label: Tool or workflow
+      description: Tool/operation, sanitized input, expected vs actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Sanitized logs, warnings, response snippets, citations.
+    validations:
+      required: false
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Blocks use
+        - Produces wrong answer
+        - Causes excessive tool calls or token use
+        - Confusing but has a workaround
+        - Documentation issue
+    validations:
+      required: false

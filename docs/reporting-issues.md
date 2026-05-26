@@ -5,6 +5,10 @@
 Please create an issue when something is confusing, unreliable, incorrect, or
 hard for an AI agent to use. Reports from both humans and agents are useful.
 
+You can file through the GitHub issue forms (**Bug Report** or **Agent
+Confusion Report**), which mirror the structure below. This page is the prose
+guide those forms link to.
+
 ## What To Report
 
 - a tool is missing, unavailable, or exposed when it does not work
