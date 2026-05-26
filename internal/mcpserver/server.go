@@ -535,10 +535,19 @@ func (s *Service) SearchCode(ctx context.Context, input SearchCodeInput) (Search
 		mode = defaultSearchMode
 	}
 
+	tokenized := input.Tokenized != nil && *input.Tokenized
+	normalized, autoQuoted := normalizeCodeQuery(input.Query, tokenized)
+	finalQuery := normalized
+	if input.PathExclude != "" {
+		finalQuery += " -path:" + input.PathExclude
+	}
+
 	return s.search(ctx, searchRequest{
 		project:          input.Project,
 		projects:         input.Projects,
-		query:            input.Query,
+		query:            finalQuery,
+		userQuery:        strings.TrimSpace(input.Query),
+		autoQuoted:       autoQuoted,
 		mode:             mode,
 		pathPrefix:       input.PathPrefix,
 		fileType:         input.FileType,
@@ -710,10 +719,19 @@ func (s *Service) SearchAndRead(ctx context.Context, input SearchAndReadInput) (
 		mode = defaultSearchMode
 	}
 
+	tokenized := input.Tokenized != nil && *input.Tokenized
+	normalized, autoQuoted := normalizeCodeQuery(input.Query, tokenized)
+	finalQuery := normalized
+	if input.PathExclude != "" {
+		finalQuery += " -path:" + input.PathExclude
+	}
+
 	searchOutput, err := s.search(ctx, searchRequest{
 		project:          input.Project,
 		projects:         input.Projects,
-		query:            input.Query,
+		query:            finalQuery,
+		userQuery:        strings.TrimSpace(input.Query),
+		autoQuoted:       autoQuoted,
 		mode:             mode,
 		pathPrefix:       input.PathPrefix,
 		fileType:         input.FileType,
@@ -1974,6 +1992,8 @@ type searchRequest struct {
 	project          string
 	projects         []string
 	query            string
+	userQuery        string // trimmed, pre-normalization user query; used for warnings. Empty on the symbol path.
+	autoQuoted       bool   // true when normalizeCodeQuery wrapped the query in quotes
 	mode             string
 	pathPrefix       string
 	fileType         string

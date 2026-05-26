@@ -2396,3 +2396,69 @@ func TestSearchAndReadInputSchemaRequiredFields(t *testing.T) {
 		t.Errorf("path_exclude property missing from schema")
 	}
 }
+
+func TestSearchCodeAutoQuotesMultiWordQuery(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	out, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query: "extends PaymentProcessor",
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if got := backend.searchRequests[0].Query; got != `"extends PaymentProcessor"` {
+		t.Fatalf("backend query = %q, want auto-quoted phrase", got)
+	}
+	if out.Query != `"extends PaymentProcessor"` {
+		t.Fatalf("output query = %q, want auto-quoted phrase", out.Query)
+	}
+}
+
+func TestSearchCodeTokenizedOptOutKeepsBagOfWords(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	tokenized := true
+	_, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query:     "extends PaymentProcessor",
+		Tokenized: &tokenized,
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if got := backend.searchRequests[0].Query; got != "extends PaymentProcessor" {
+		t.Fatalf("backend query = %q, want unquoted", got)
+	}
+}
+
+func TestSearchCodeAppendsPathExcludeAfterNormalization(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	_, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query:       "extends PaymentProcessor",
+		PathExclude: "legacy",
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if got := backend.searchRequests[0].Query; got != `"extends PaymentProcessor" -path:legacy` {
+		t.Fatalf("backend query = %q, want phrase + path exclusion", got)
+	}
+}
+
+func TestSearchSymbolDefinitionsDoesNotAutoQuote(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	_, err := service.SearchSymbolDefinitions(context.Background(), SymbolSearchInput{
+		Symbol: "Payment Processor",
+	})
+	if err != nil {
+		t.Fatalf("SearchSymbolDefinitions error: %v", err)
+	}
+	if got := backend.searchRequests[0].Query; got != "Payment Processor" {
+		t.Fatalf("symbol query = %q, want unmodified (no auto-quote on symbol path)", got)
+	}
+}
