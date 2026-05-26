@@ -24,7 +24,7 @@ import (
 	"github.com/rokasklive/opengrok-go-mcp/internal/opengrok"
 )
 
-const version = "v0.3.0-beta.2"
+const version = "v0.3.0"
 
 func main() {
 	if err := run(); err != nil {

@@ -45,7 +45,7 @@ Add this to `opencode.json`:
       "command": [
         "go",
         "run",
-        "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0-beta.2"
+        "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0"
       ],
       "enabled": true,
       "environment": {
@@ -115,7 +115,7 @@ Add to `~/.claude.json` under `mcpServers`, or run `claude mcp add`:
       "command": "go",
       "args": [
         "run",
-        "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0-beta.2"
+        "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0"
       ],
       "env": {
         "OPENGROK_MCP_BASE_URL": "https://instance.opengrok.com/source/api/v1",
@@ -134,7 +134,7 @@ Add to `.codex` in the project root or `~/.codex/config.toml` globally:
 ```toml
 [[mcp_servers]]
 name = "opengrok"
-command = ["go", "run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0-beta.2"]
+command = ["go", "run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0"]
 
 [mcp_servers.env]
 OPENGROK_MCP_BASE_URL = "https://instance.opengrok.com/source/api/v1"
