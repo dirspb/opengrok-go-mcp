@@ -2086,7 +2086,7 @@ func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, 
 	if req.autoQuoted {
 		warning = appendWarning(warning, "Auto-quoted multi-word query for exact-phrase match. Pass tokenized:true to search the words as independent terms.")
 	}
-	if req.userQuery != "" && req.mode != string(opengrok.ModeHistory) && strings.Contains(req.userQuery, "date:") {
+	if req.userQuery != "" && req.mode != string(opengrok.ModeHistory) && queryHasDateField(req.userQuery) {
 		warning = appendWarning(warning, "date: is only valid in history mode and was ignored in this search.")
 	}
 	if result.TotalHits > searchWarnThreshold {

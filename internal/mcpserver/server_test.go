@@ -2541,6 +2541,22 @@ func TestSearchCodeDateWarningIgnoresPathExclude(t *testing.T) {
 	}
 }
 
+func TestSearchCodeNoDateWarningForCandidateField(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	out, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query: "candidate:Foo",
+		Mode:  string(opengrok.ModeFullText),
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if out.Warning != nil && strings.Contains(*out.Warning, "history mode") {
+		t.Fatalf("warning = %q, want no date: note for candidate: field", *out.Warning)
+	}
+}
+
 func TestSearchCodeLargeResultBackstopQuotesUserQuery(t *testing.T) {
 	backend := &fakeBackend{searchResult: opengrok.SearchResult{TotalHits: 1200, Hits: []opengrok.Hit{}}}
 	service := NewService(testConfig(), backend)

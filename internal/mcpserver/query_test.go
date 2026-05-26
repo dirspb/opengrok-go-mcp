@@ -54,6 +54,29 @@ func TestIsMultiWord(t *testing.T) {
 	}
 }
 
+func TestQueryHasDateField(t *testing.T) {
+	tests := []struct {
+		query string
+		want  bool
+	}{
+		{"date:[20230101 TO 20261231]", true},
+		{"foo date:20230101", true},
+		{"Engine", false},
+		{"candidate:Foo", false},
+		{"update:bar", false},
+		{"invalidate:x", false},
+		{"", false},
+		{"defs:Foo", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			if got := queryHasDateField(tt.query); got != tt.want {
+				t.Errorf("queryHasDateField(%q) = %v, want %v", tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAppendPathExcludes(t *testing.T) {
 	tests := []struct {
 		name        string

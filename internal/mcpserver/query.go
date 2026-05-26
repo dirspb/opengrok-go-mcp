@@ -49,6 +49,19 @@ func isMultiWord(query string) bool {
 	return len(strings.Fields(query)) > 1
 }
 
+// queryHasDateField reports whether the query references the Lucene date: field
+// as a whitespace-delimited token (e.g. "date:[...]" or "foo date:X"). It uses a
+// token-prefix check so substrings inside other words (e.g. "candidate:") do not
+// match.
+func queryHasDateField(query string) bool {
+	for _, token := range strings.Fields(query) {
+		if strings.HasPrefix(token, "date:") {
+			return true
+		}
+	}
+	return false
+}
+
 // appendPathExcludes appends a Lucene -path: exclusion term for each
 // whitespace-separated token in pathExclude. OpenGrok supports multiple path
 // exclusions (e.g. -path:service -path:test), so a value like "service test"
