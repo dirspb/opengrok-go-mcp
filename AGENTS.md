@@ -116,11 +116,5 @@ updates, and trivial test-only cleanups may skip the full workflow.
 
 ## Review Checklist
 
-- MCP contract impact identified and tested
-- Fresh-subagent usability findings captured for agent-facing changes
-- OpenGrok semantic limits documented
-- Pagination, cursor, warning, citation behavior preserved
-- Security and transport assumptions unchanged or specified
-- Compatibility/default changes justified
-- README/docs updated where user-facing behavior changed
-- `go test ./...` or justified narrower verification run
+See `docs/review-checklist.md` for the full review rubric (also usable as a
+review-agent prompt).
