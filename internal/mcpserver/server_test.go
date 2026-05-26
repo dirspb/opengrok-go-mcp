@@ -2577,3 +2577,35 @@ func TestSearchCodeLargeResultBackstopQuotesUserQuery(t *testing.T) {
 		t.Fatalf("warning = %q, should not echo the -path: term", *out.Warning)
 	}
 }
+
+func TestSearchCodeBareQueryCursorRoundTrips(t *testing.T) {
+	backend := &fakeBackend{
+		searchResult: opengrok.SearchResult{
+			TotalHits: 100,
+			Hits: []opengrok.Hit{
+				{Project: "platform", FilePath: "src/Engine.swift", LineNumber: 1, Snippet: strPtr("x")},
+			},
+		},
+	}
+	service := NewService(testConfig(), backend)
+
+	first, err := service.SearchCode(context.Background(), SearchCodeInput{Query: "extends PaymentProcessor"})
+	if err != nil {
+		t.Fatalf("first SearchCode error: %v", err)
+	}
+	if first.NextCursor == nil || *first.NextCursor == "" {
+		t.Fatal("expected a next cursor on first page")
+	}
+
+	// Second request: SAME bare query (re-normalized deterministically) + cursor.
+	second, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query:  "extends PaymentProcessor",
+		Cursor: first.NextCursor,
+	})
+	if err != nil {
+		t.Fatalf("second SearchCode error: %v (cursor should validate after deterministic normalization)", err)
+	}
+	if second.Page <= first.Page {
+		t.Fatalf("second page %d should advance past first page %d", second.Page, first.Page)
+	}
+}
