@@ -38,10 +38,20 @@ agents. Tool inputs, output fields, pagination cursors, citations, warnings,
 and capability gates MUST be explicitly documented and tested when changed.
 Full, compact, and gateway tool surfaces MUST remain coherent views over the
 same underlying behavior unless a feature spec states a deliberate exception.
+Tool names, descriptions, schemas, warnings, defaults, and examples MUST be
+written for a cold agent seeing the server for the first time. Non-trivial
+agent-facing changes SHOULD be evaluated by a fresh lightweight or mid-tier
+subagent where available, or by a fresh-session simulation otherwise, before
+merge. The evaluator SHOULD receive a realistic task and minimal upfront
+project/tool context so its report preserves contrast with the initiated
+implementer's expectations.
 
 Rationale: this project exists to let agents search and read OpenGrok-backed
 code reliably. Ambiguous schemas or uneven tool surfaces directly reduce agent
-correctness.
+correctness. Mechanical tests prove behavior, but fresh-subagent evaluation
+proves whether the tool surface is discoverable and usable by its actual
+audience. That contrast is valuable evidence for improving descriptions,
+schemas, warnings, defaults, and examples.
 
 ### II. Evidence-Backed OpenGrok Semantics
 
@@ -121,7 +131,8 @@ warnings for an agent to decide whether to narrow, paginate, or verify.
 Specifications MUST define independently testable user stories, explicit edge
 cases, and measurable outcomes for agent-facing behavior. Plans MUST record the
 real repository paths being changed, the affected MCP surface, security impact,
-documentation impact, and the tests that will prove the behavior.
+documentation impact, agent UX validation plan, and the tests that will prove
+the behavior.
 
 Implementation tasks SHOULD be ordered test-first for each non-trivial
 behavioral slice: write or update the proving test, run the targeted test,
@@ -132,7 +143,8 @@ against this constitution for accuracy and compatibility.
 
 Completion requires no unexplained constitution gate violations, no remaining
 placeholder template text in generated artifacts, passing verification commands
-documented in the plan, and updated README or `docs/` content when user-facing
+documented in the plan, fresh-subagent usability findings for non-trivial
+agent-facing changes, and updated README or `docs/` content when user-facing
 behavior changed.
 
 ## Governance

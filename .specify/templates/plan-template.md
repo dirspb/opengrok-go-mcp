@@ -48,6 +48,11 @@
   otherwise prove the new behavior, plus the targeted verification command for
   each behavioral slice. For non-trivial behavior changes, state whether tasks
   are ordered test-first or why another sequence is clearer.
+- **Agent UX Validation**: Define a realistic first-use task for a fresh
+  lightweight or mid-tier subagent where available, or fresh-session simulation
+  otherwise. Keep upfront context minimal so the report can reveal whether tool
+  names, descriptions, schemas, warnings, defaults, and examples work for
+  first-use discovery.
 - **Security**: Confirm secrets stay in environment variables, HTTP remains
   loopback-first, and risky options are explicit and documented.
 - **Compatibility and Docs**: Note any public behavior or default changes,

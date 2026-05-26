@@ -1,6 +1,8 @@
 # Known Limitations
 
 This document describes current operational limitations of `opengrok-go-mcp`.
+The project is pre-1.0, so experimental surfaces and configuration may still
+change before a stable release.
 
 ## Search And Discovery
 
@@ -39,6 +41,18 @@ This document describes current operational limitations of `opengrok-go-mcp`.
   the current page. `sort=date` preserves OpenGrok order and returns a
   warning; there is no global date-sorted or path-sorted result set.
 
+- **Query normalization is helpful but not semantic.** Bare multi-word code
+  queries are auto-quoted as exact phrases unless `tokenized=true` is set or the
+  query already appears to use Lucene syntax. The response warns when this
+  happens. This reduces noisy broad searches, but it does not infer user intent;
+  agents should still inspect `query` and `warning` in the response.
+
+- **Some Lucene syntax is mode-sensitive.** `date:` constraints only work in
+  OpenGrok history mode; in other modes they are ignored and surfaced through a
+  warning. Wildcards (`*` and `?`) cannot be used inside quoted phrases and may
+  silently produce no OpenGrok matches. Use tokenized queries or unquoted Lucene
+  syntax when wildcard matching is required.
+
 ## Capability And Response Boundaries
 
 - **File-read capability detection can be optimistic.** Without
@@ -52,6 +66,24 @@ This document describes current operational limitations of `opengrok-go-mcp`.
   directory listings, and avoid requesting very large files through the raw
   fallback.
 
+- **Automatic context expansion is bounded and best-effort.** Search results may
+  include fetched source context, but only within the configured context budget,
+  result limit, file limit, and fetch concurrency. Results beyond those limits
+  are skipped, compact response mode omits expansion, and failed file fetches
+  leave matching results without expanded context. Inspect the `expansion`
+  diagnostics before assuming every search hit includes source context.
+
+- **Context budgets trade completeness for response size.** `minimal`,
+  `default`, and `maximal` budgets change how many lines, results, and files may
+  be expanded. Operators can override these defaults with environment variables,
+  so agents should treat budget names as deployment-specific policy hints rather
+  than exact token counts.
+
+- **Gateway mode is experimental.** `OPENGROK_MCP_TOOL_SURFACE=gateway` exposes
+  a discovery-and-dispatch surface instead of the full static tool list. Gateway
+  operations use the same backend behavior, pagination, warnings, and capability
+  gating, but the gateway manifest and operation names may change before 1.0.
+
 ## State And Transport
 
 - **Memory is process-scoped and ephemeral.** Memory tools use one in-process
@@ -62,6 +94,18 @@ This document describes current operational limitations of `opengrok-go-mcp`.
 - **HTTP mode has no inbound client authentication.** The MCP HTTP handler
   relies on its loopback default bind address or external authentication and
   network controls. Do not expose it directly to untrusted networks.
+
+- **Cursor integrity is optional unless configured.** Pagination cursors encode
+  query context and offsets. Without `OPENGROK_MCP_CURSOR_SECRET`, cursors are
+  unsigned; malformed or mismatched cursors are rejected, but clients in a
+  shared deployment should not rely on tamper resistance unless cursor signing
+  is enabled.
+
+- **The response cache is in-process and optional.** When
+  `OPENGROK_MCP_CACHE_ENABLED=true`, supported project, file-list, file-content,
+  and project-overview calls are cached with a TTL and max-entry bound. Search
+  results are not cached. Cache entries are not shared across server processes,
+  are not durable, and may reflect stale OpenGrok state until the TTL expires.
 
 - **Stdio mode does not install signal-aware graceful shutdown.** HTTP mode
   handles `SIGINT` and `SIGTERM` through a shutdown context; stdio mode runs

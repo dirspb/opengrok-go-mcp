@@ -161,6 +161,7 @@ Examples of foundational tasks (adjust based on this Go MCP project):
 **Purpose**: Improvements that affect multiple user stories
 
 - [ ] TXXX [P] Documentation updates in docs/
+- [ ] TXXX Dispatch a fresh lightweight/mid-tier subagent with a realistic task and minimal context; capture its first-use findings on tool descriptions, schemas, warnings, defaults, and examples
 - [ ] TXXX Code cleanup and refactoring
 - [ ] TXXX Performance optimization across all stories
 - [ ] TXXX [P] Additional Go tests for uncovered edge cases
