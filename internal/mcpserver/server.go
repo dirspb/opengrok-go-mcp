@@ -1458,7 +1458,7 @@ func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Serv
 	if cfg.Capabilities.ListFiles {
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "get_project_overview",
-			Description: "Get a high-level overview of an OpenGrok project: total file/directory counts and top-level directory and file entries.",
+			Description: "Get a high-level overview of an OpenGrok project: total file/directory counts, a per-language breakdown (files, lines, and percent per language), and top-level directory and file entries. Use this to answer questions like \"what languages does this project use?\".",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input ProjectOverviewInput) (*mcp.CallToolResult, ProjectOverviewOutput, error) {
 			output, err := service.GetProjectOverview(ctx, input)
 			return nil, output, err
