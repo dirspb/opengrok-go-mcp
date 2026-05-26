@@ -42,7 +42,6 @@ Add this to `opencode.json`:
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "opengrok": {
-      "type": "local",
       "command": [
         "go",
         "run",
@@ -50,23 +49,60 @@ Add this to `opencode.json`:
       ],
       "enabled": true,
       "environment": {
-        "OPENGROK_MCP_BASE_URL": "https://grok.example.com/source/api/v1",
-        "OPENGROK_MCP_DEFAULT_PROJECT": "platform",
-        "OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
-      }
+        "OPENGROK_MCP_BASE_URL": "https://instance.opengrok.com/source/api/v1",
+        "OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg==",
+        "OPENGROK_MCP_DEFAULT_PROJECT": "services-1.0.2-full"
+      },
+      "type": "local"
     }
   }
 }
 ```
-
-> **Developing on a branch?** Replace `@v0.3.0-beta.2` with the path to a local
-> clone: `["go", "run", "/path/to/opengrok-go-mcp/cmd/opengrok-go-mcp"]`.
 
 For Basic auth use only the base64 token value, without the `Basic ` prefix. Set exactly one of
 `OPENGROK_MCP_API_TOKEN` or `OPENGROK_MCP_BASIC_AUTH_TOKEN`.
 
 `OPENGROK_MCP_WEB_BASE_URL` may be omitted when `OPENGROK_MCP_BASE_URL` ends in
 `/api/v1`; the server derives it by trimming that suffix.
+
+If the OpenGrok HTTPS certificate is expired or otherwise invalid, the MCP
+server cannot connect until TLS is fixed or
+`OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY=true` is set. Use that only for trusted
+internal instances, and remove it once certificates are valid.
+
+### Local Clone Development
+
+When working from a local checkout, keep the same environment block and replace
+the published package command with a command that runs from your clone.
+
+OpenCode:
+
+```jsonc
+"command": [
+  "sh",
+  "-c",
+  "cd /path/to/mcp/opengrok-go-mcp && go run ./cmd/opengrok-go-mcp --read-timeout=30s --write-timeout=30s"
+]
+```
+
+Claude Code:
+
+```json
+"command": "sh",
+"args": [
+  "-c",
+  "cd /path/to/mcp/opengrok-go-mcp && go run ./cmd/opengrok-go-mcp --read-timeout=30s --write-timeout=30s"
+]
+```
+
+Codex:
+
+```toml
+command = ["sh", "-c", "cd /path/to/mcp/opengrok-go-mcp && go run ./cmd/opengrok-go-mcp --read-timeout=30s --write-timeout=30s"]
+```
+
+The timeout flags are optional, but useful when a remote OpenGrok instance or
+large query occasionally responds slowly.
 
 ### Claude Code
 
@@ -77,11 +113,14 @@ Add to `~/.claude.json` under `mcpServers`, or run `claude mcp add`:
   "mcpServers": {
     "opengrok": {
       "command": "go",
-      "args": ["run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0-beta.2"],
+      "args": [
+        "run",
+        "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0-beta.2"
+      ],
       "env": {
-        "OPENGROK_MCP_BASE_URL": "https://grok.example.com/source/api/v1",
-        "OPENGROK_MCP_DEFAULT_PROJECT": "platform",
-        "OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
+        "OPENGROK_MCP_BASE_URL": "https://instance.opengrok.com/source/api/v1",
+        "OPENGROK_MCP_BASIC_AUTH_TOKEN": "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg==",
+        "OPENGROK_MCP_DEFAULT_PROJECT": "services-1.0.2-full"
       }
     }
   }
@@ -98,9 +137,9 @@ name = "opengrok"
 command = ["go", "run", "github.com/rokasklive/opengrok-go-mcp/cmd/opengrok-go-mcp@v0.3.0-beta.2"]
 
 [mcp_servers.env]
-OPENGROK_MCP_BASE_URL = "https://grok.example.com/source/api/v1"
-OPENGROK_MCP_DEFAULT_PROJECT = "platform"
+OPENGROK_MCP_BASE_URL = "https://instance.opengrok.com/source/api/v1"
 OPENGROK_MCP_BASIC_AUTH_TOKEN = "Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg=="
+OPENGROK_MCP_DEFAULT_PROJECT = "services-1.0.2-full"
 ```
 
 `OPENGROK_MCP_PROJECTS` is optional but recommended when `/projects/indexed` is
@@ -115,8 +154,9 @@ OpenCode should use local command mode. For manual HTTP use:
 
 ```bash
 OPENGROK_MCP_TRANSPORT=http \
-OPENGROK_MCP_BASE_URL=https://grok.example.com/source/api/v1 \
-OPENGROK_MCP_DEFAULT_PROJECT=platform \
+OPENGROK_MCP_BASE_URL=https://instance.opengrok.com/source/api/v1 \
+OPENGROK_MCP_BASIC_AUTH_TOKEN=Ik5ldmVyIGdvbm5hIGdpdmUgeW91IHVwIjoiTmV2ZXIgZ29ubmEgbGV0IHlvdSBkb3duIg== \
+OPENGROK_MCP_DEFAULT_PROJECT=services-1.0.2-full \
 go run ./cmd/opengrok-go-mcp
 ```
 
