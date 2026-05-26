@@ -43,14 +43,14 @@ type CompactReadInput struct {
 type SymbolSearchInput struct {
 	Project          string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
 	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
-	Symbol           string   `json:"symbol"`
-	PageSize         int      `json:"page_size"`
-	Cursor           *string  `json:"cursor,omitempty"`
-	IncludeLinks     *bool    `json:"include_links,omitempty"`
-	IncludeSnippets  *bool    `json:"include_snippets,omitempty"`
+	Symbol           string   `json:"symbol" jsonschema:"REQUIRED. The symbol name to search for, matched as a Lucene term in OpenGrok's symbol index (e.g. PaymentProcessor or processPayment). Pass a bare name; do not wrap it in quotes."`
+	PageSize         int      `json:"page_size,omitempty" jsonschema:"optional results per page; omit for the server default"`
+	Cursor           *string  `json:"cursor,omitempty" jsonschema:"optional pagination cursor from a previous response's next_cursor; pass the same symbol to fetch the next page"`
+	IncludeLinks     *bool    `json:"include_links,omitempty" jsonschema:"optional; set false to omit display/raw URLs from results"`
+	IncludeSnippets  *bool    `json:"include_snippets,omitempty" jsonschema:"optional; set false to omit match snippets from results"`
 	MaxHitsPerFile   int      `json:"max_hits_per_file,omitempty" jsonschema:"optional maximum results per file; 0 means no limit"`
 	Sort             string   `json:"sort,omitempty" jsonschema:"optional sort order: relevance (default), path, or date"`
-	ExpandContext    *bool    `json:"expand_context,omitempty"`
+	ExpandContext    *bool    `json:"expand_context,omitempty" jsonschema:"optional; set true to include extra lines of file context around each match"`
 	AllowAllProjects *bool    `json:"allow_all_projects,omitempty" jsonschema:"explicitly allow searching across all projects, bypassing the configured project list"`
 	ResponseMode     string   `json:"response_mode,omitempty" jsonschema:"optional response detail level: full (default) or compact"`
 	ContextBudget    string   `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
@@ -265,11 +265,11 @@ type ProjectOverviewOutput struct {
 type ImplementationSearchInput struct {
 	Project          string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
 	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
-	Symbol           string   `json:"symbol"`
-	PageSize         int      `json:"page_size,omitempty"`
-	Cursor           *string  `json:"cursor,omitempty"`
-	IncludeLinks     *bool    `json:"include_links,omitempty"`
-	ExpandContext    *bool    `json:"expand_context,omitempty"`
+	Symbol           string   `json:"symbol" jsonschema:"REQUIRED. The symbol name whose implementations/usages to find, matched as a Lucene term (e.g. PaymentProcessor). Pass a bare name; do not wrap it in quotes."`
+	PageSize         int      `json:"page_size,omitempty" jsonschema:"optional results per page; omit for the server default"`
+	Cursor           *string  `json:"cursor,omitempty" jsonschema:"optional pagination cursor from a previous response's next_cursor; pass the same symbol to fetch the next page"`
+	IncludeLinks     *bool    `json:"include_links,omitempty" jsonschema:"optional; set false to omit display/raw URLs from results"`
+	ExpandContext    *bool    `json:"expand_context,omitempty" jsonschema:"optional; set true to include extra lines of file context around each match"`
 	MaxHitsPerFile   int      `json:"max_hits_per_file,omitempty" jsonschema:"optional maximum results per file; 0 means no limit"`
 	Sort             string   `json:"sort,omitempty" jsonschema:"optional sort order: relevance (default), path, or date"`
 	AllowAllProjects *bool    `json:"allow_all_projects,omitempty" jsonschema:"explicitly allow searching across all projects, bypassing the configured project list"`
@@ -278,12 +278,12 @@ type ImplementationSearchInput struct {
 }
 
 type CrossProjectReferencesInput struct {
-	Symbol           string   `json:"symbol"`
-	Projects         []string `json:"projects,omitempty"`
-	PageSize         int      `json:"page_size,omitempty"`
-	Cursor           *string  `json:"cursor,omitempty"`
-	IncludeLinks     *bool    `json:"include_links,omitempty"`
-	ExpandContext    *bool    `json:"expand_context,omitempty"`
+	Symbol           string   `json:"symbol" jsonschema:"REQUIRED. The symbol name to find references to across projects, matched as a Lucene term (e.g. PaymentProcessor). Pass a bare name; do not wrap it in quotes."`
+	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
+	PageSize         int      `json:"page_size,omitempty" jsonschema:"optional results per page; omit for the server default"`
+	Cursor           *string  `json:"cursor,omitempty" jsonschema:"optional pagination cursor from a previous response's next_cursor; pass the same symbol to fetch the next page"`
+	IncludeLinks     *bool    `json:"include_links,omitempty" jsonschema:"optional; set false to omit display/raw URLs from results"`
+	ExpandContext    *bool    `json:"expand_context,omitempty" jsonschema:"optional; set true to include extra lines of file context around each match"`
 	MaxHitsPerFile   int      `json:"max_hits_per_file,omitempty" jsonschema:"optional maximum results per file; 0 means no limit"`
 	Sort             string   `json:"sort,omitempty" jsonschema:"optional sort order: relevance (default), path, or date"`
 	AllowAllProjects *bool    `json:"allow_all_projects,omitempty" jsonschema:"explicitly allow searching across all projects, bypassing the configured project list"`
@@ -422,16 +422,16 @@ type SearchAndReadResult struct {
 }
 
 type FindSymbolAndReferencesInput struct {
-	Project          string   `json:"project,omitempty"`
-	Projects         []string `json:"projects,omitempty"`
-	Symbol           string   `json:"symbol"`
-	PageSize         int      `json:"page_size,omitempty"`
-	Cursor           *string  `json:"cursor,omitempty"`
-	IncludeLinks     *bool    `json:"include_links,omitempty"`
-	IncludeSnippets  *bool    `json:"include_snippets,omitempty"`
-	ResponseMode     string   `json:"response_mode,omitempty"`
-	ContextBudget    string   `json:"context_budget,omitempty"`
-	AllowAllProjects *bool    `json:"allow_all_projects,omitempty"`
+	Project          string   `json:"project,omitempty" jsonschema:"optional OpenGrok project override; omit unless the user explicitly names an OpenGrok project"`
+	Projects         []string `json:"projects,omitempty" jsonschema:"optional OpenGrok project overrides; omit unless the user explicitly names OpenGrok projects"`
+	Symbol           string   `json:"symbol" jsonschema:"REQUIRED. The symbol name to look up (its definition plus references), matched as a Lucene term (e.g. PaymentProcessor). Pass a bare name; do not wrap it in quotes."`
+	PageSize         int      `json:"page_size,omitempty" jsonschema:"optional results per page for the references list; omit for the server default"`
+	Cursor           *string  `json:"cursor,omitempty" jsonschema:"optional pagination cursor from a previous response's next_cursor; pass the same symbol to fetch the next page of references"`
+	IncludeLinks     *bool    `json:"include_links,omitempty" jsonschema:"optional; set false to omit display/raw URLs from results"`
+	IncludeSnippets  *bool    `json:"include_snippets,omitempty" jsonschema:"optional; set false to omit match snippets from results"`
+	ResponseMode     string   `json:"response_mode,omitempty" jsonschema:"optional response detail level: full (default) or compact"`
+	ContextBudget    string   `json:"context_budget,omitempty" jsonschema:"optional context expansion budget tier: minimal (few lines, few results), default (balanced), or maximal (many lines, many results)"`
+	AllowAllProjects *bool    `json:"allow_all_projects,omitempty" jsonschema:"explicitly allow searching across all projects, bypassing the configured project list"`
 }
 
 type FindSymbolAndReferencesOutput struct {

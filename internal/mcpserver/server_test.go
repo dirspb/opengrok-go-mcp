@@ -2397,6 +2397,22 @@ func TestSearchAndReadInputSchemaRequiredFields(t *testing.T) {
 	}
 }
 
+func TestSymbolSearchInputSchemaRequiredFields(t *testing.T) {
+	schema, err := jsonschema.For[SymbolSearchInput](nil)
+	if err != nil {
+		t.Fatalf("infer SymbolSearchInput schema: %v", err)
+	}
+	if !slices.Contains(schema.Required, "symbol") {
+		t.Errorf("symbol should be required, required=%v", schema.Required)
+	}
+	if slices.Contains(schema.Required, "page_size") {
+		t.Errorf("page_size should NOT be required, required=%v", schema.Required)
+	}
+	if prop, ok := schema.Properties["symbol"]; !ok || prop.Description == "" {
+		t.Errorf("symbol property should be present and documented; got ok=%v", ok)
+	}
+}
+
 func TestSearchCodeAutoQuotesMultiWordQuery(t *testing.T) {
 	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
 	service := NewService(testConfig(), backend)

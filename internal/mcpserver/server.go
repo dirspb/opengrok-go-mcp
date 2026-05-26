@@ -1391,7 +1391,7 @@ func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Serv
 	if cfg.Capabilities.SearchSymbolDefinitions {
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_symbol_definitions",
-			Description: "Search symbol definitions in reference/base OpenGrok code. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use returned file_path/project with read_file to read the matched file; do not use WebFetch for display_url/raw_url because browser URLs may require auth. When answering about a class/interface, include citation.url for the definition.",
+			Description: "Search symbol definitions in reference/base OpenGrok code. Pass a bare symbol name (e.g. PaymentProcessor), not quoted. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use returned file_path/project with read_file to read the matched file; do not use WebFetch for display_url/raw_url because browser URLs may require auth. When answering about a class/interface, include citation.url for the definition.",
 			Annotations: readOnlyAnnotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.SearchSymbolDefinitions(ctx, input)
@@ -1401,7 +1401,7 @@ func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Serv
 	if cfg.Capabilities.SearchSymbolReferences {
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_symbol_references",
-			Description: "Search symbol references in reference/base OpenGrok code. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use returned file_path/project with read_file to read the matched file; avoid calling this for broad symbols unless you need many references. If discussing a specific reference, include citation.url.",
+			Description: "Search symbol references in reference/base OpenGrok code. Pass a bare symbol name (e.g. PaymentProcessor), not quoted. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use returned file_path/project with read_file to read the matched file; avoid calling this for broad symbols unless you need many references. If discussing a specific reference, include citation.url.",
 			Annotations: readOnlyAnnotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input SymbolSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.SearchSymbolReferences(ctx, input)
@@ -1411,7 +1411,7 @@ func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Serv
 	if cfg.Capabilities.SearchSymbolDefinitions && cfg.Capabilities.SearchSymbolReferences && cfg.Capabilities.GetFileContext {
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "find_symbol_and_references",
-			Description: "Find a symbol's definition and all its references in a single call. Returns the definition with surrounding context plus a paginated reference list.",
+			Description: "Find a symbol's definition and all its references in a single call. Pass a bare symbol name (e.g. PaymentProcessor), not quoted. Returns the definition with surrounding context plus a paginated reference list.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input FindSymbolAndReferencesInput) (*mcp.CallToolResult, FindSymbolAndReferencesOutput, error) {
 			output, err := service.FindSymbolAndReferences(ctx, input)
 			return nil, output, err
@@ -1468,7 +1468,7 @@ func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Serv
 	if cfg.Capabilities.SearchSymbolReferences {
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_implementations",
-			Description: "Search candidate implementations and usages of a symbol. Delegates to symbol-reference search; results are best-effort since OpenGrok does not provide language-semantic implementation mapping.",
+			Description: "Search candidate implementations and usages of a symbol. Pass a bare symbol name (e.g. PaymentProcessor), not quoted. Delegates to symbol-reference search; results are best-effort since OpenGrok does not provide language-semantic implementation mapping.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input ImplementationSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.SearchImplementations(ctx, input)
 			return nil, output, err
@@ -1476,7 +1476,7 @@ func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Serv
 
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_cross_project_references",
-			Description: "Search for references to a symbol across multiple projects, grouped by project for cross-project analysis.",
+			Description: "Search for references to a symbol across multiple projects, grouped by project for cross-project analysis. Pass a bare symbol name (e.g. PaymentProcessor), not quoted.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input CrossProjectReferencesInput) (*mcp.CallToolResult, CrossProjectReferencesOutput, error) {
 			output, err := service.SearchCrossProjectReferences(ctx, input)
 			return nil, output, err
