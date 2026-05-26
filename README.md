@@ -111,8 +111,8 @@ Common optional settings:
 - `DEBUG=1`: log OpenGrok API and web requests to stderr.
 - `OPENGROK_MCP_TRANSPORT=http`: enable Streamable HTTP mode.
 - `OPENGROK_MCP_LISTEN`: HTTP listen address, default `127.0.0.1:8765`.
-- `OPENGROK_MCP_TOOL_SURFACE`: tool registration surface, default `compact`.
-  Set to `full` to expose fine-grained tools (e.g. `search_code`, `read_file`).
+- `OPENGROK_MCP_TOOL_SURFACE`: tool registration surface, default `full`.
+  Set to `compact` to expose fewer wrapper tools (e.g. `opengrok_search`, `opengrok_read`).
   Set to `gateway` to expose only `opengrok_discover` and `opengrok_call`
   (experimental).
 - `OPENGROK_MCP_MEMORY_ENABLED`: default `true`. Set to `false` to disable
@@ -151,7 +151,7 @@ At startup, the server probes OpenGrok and exposes only working tools:
 - `search_and_read` and `find_symbol_and_references` — compound operations that return file content; exposed only when their search capabilities and `GetFileContext` are enabled.
 - `memory_set`, `memory_get`, `memory_list`, `memory_delete`, `memory_clear` — process-scoped investigation memory; exposed only for stdio servers with the `Memory` capability enabled. These tools are not registered for HTTP transport because memory is not isolated by client session.
 
-With `OPENGROK_MCP_TOOL_SURFACE=compact` (the default), the server exposes
+With `OPENGROK_MCP_TOOL_SURFACE=compact`, the server exposes
 fewer wrapper tools instead of the fine-grained tools listed above, only when
 their backing capabilities are enabled:
 
@@ -237,17 +237,16 @@ makes this explicit; narrow with `path_prefix` to enumerate a kind fully.
 
 Choose the setup that matches your usage:
 
-- **Local stdio + compact mode (recommended for most users).** The default. The
-  server exposes fewer, higher-level wrapper tools (`opengrok_search`,
-  `opengrok_read`, `opengrok_symbols`, `opengrok_projects`). Clean tool list, no
-  additional config needed. Ideal for OpenCode, Claude Code, Codex, and similar
-  agents that handle dispatch internally.
+- **Full mode (default).** The server exposes every fine-grained tool
+  individually (`search_code`, `read_file`, `search_symbol_definitions`, …),
+  each with detailed, per-argument descriptions. This is where the richest
+  guidance reaches the agent. No additional config needed.
 
-- **Full mode (power users).** Set `OPENGROK_MCP_TOOL_SURFACE=full` to expose
-  every fine-grained tool individually (`search_code`, `read_file`,
-  `search_symbol_definitions`, …). Useful when you want direct, per-operation
-  control over which tool an agent calls, at the cost of a longer tool list and
-  more scrolling in tool-selection UIs.
+- **Local stdio + compact mode.** Set `OPENGROK_MCP_TOOL_SURFACE=compact` to
+  expose fewer, higher-level wrapper tools (`opengrok_search`, `opengrok_read`,
+  `opengrok_symbols`, `opengrok_projects`). A cleaner tool list for agents that
+  prefer dispatching through a single wrapper; note that per-argument schemas
+  are not surfaced for the nested `payload` in this mode.
 
 - **HTTP mode (controlled local/internal setups only).** Set
   `OPENGROK_MCP_TRANSPORT=http`. The server binds to `127.0.0.1:8765` by
