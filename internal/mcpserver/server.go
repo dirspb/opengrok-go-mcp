@@ -537,10 +537,7 @@ func (s *Service) SearchCode(ctx context.Context, input SearchCodeInput) (Search
 
 	tokenized := input.Tokenized != nil && *input.Tokenized
 	normalized, autoQuoted := normalizeCodeQuery(input.Query, tokenized)
-	finalQuery := normalized
-	if input.PathExclude != "" {
-		finalQuery += " -path:" + input.PathExclude
-	}
+	finalQuery := appendPathExcludes(normalized, input.PathExclude)
 
 	return s.search(ctx, searchRequest{
 		project:          input.Project,
@@ -721,10 +718,7 @@ func (s *Service) SearchAndRead(ctx context.Context, input SearchAndReadInput) (
 
 	tokenized := input.Tokenized != nil && *input.Tokenized
 	normalized, autoQuoted := normalizeCodeQuery(input.Query, tokenized)
-	finalQuery := normalized
-	if input.PathExclude != "" {
-		finalQuery += " -path:" + input.PathExclude
-	}
+	finalQuery := appendPathExcludes(normalized, input.PathExclude)
 
 	searchOutput, err := s.search(ctx, searchRequest{
 		project:          input.Project,

@@ -2448,6 +2448,22 @@ func TestSearchCodeAppendsPathExcludeAfterNormalization(t *testing.T) {
 	}
 }
 
+func TestSearchCodeAppendsMultiplePathExcludes(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	_, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query:       "extends PaymentProcessor",
+		PathExclude: "service test",
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if got := backend.searchRequests[0].Query; got != `"extends PaymentProcessor" -path:service -path:test` {
+		t.Fatalf("backend query = %q, want two -path: exclusions", got)
+	}
+}
+
 func TestSearchSymbolDefinitionsDoesNotAutoQuote(t *testing.T) {
 	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
 	service := NewService(testConfig(), backend)

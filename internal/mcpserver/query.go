@@ -48,3 +48,14 @@ func hasBooleanOperator(query string) bool {
 func isMultiWord(query string) bool {
 	return len(strings.Fields(query)) > 1
 }
+
+// appendPathExcludes appends a Lucene -path: exclusion term for each
+// whitespace-separated token in pathExclude. OpenGrok supports multiple path
+// exclusions (e.g. -path:service -path:test), so a value like "service test"
+// excludes both. Returns query unchanged when pathExclude is empty/blank.
+func appendPathExcludes(query, pathExclude string) string {
+	for _, token := range strings.Fields(pathExclude) {
+		query += " -path:" + token
+	}
+	return query
+}

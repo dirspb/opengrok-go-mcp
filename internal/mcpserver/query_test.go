@@ -53,3 +53,24 @@ func TestIsMultiWord(t *testing.T) {
 		t.Error("whitespace-only reported multi-word")
 	}
 }
+
+func TestAppendPathExcludes(t *testing.T) {
+	tests := []struct {
+		name        string
+		query       string
+		pathExclude string
+		want        string
+	}{
+		{"empty exclude unchanged", `"foo bar"`, "", `"foo bar"`},
+		{"single token", `"foo bar"`, "legacy", `"foo bar" -path:legacy`},
+		{"multiple tokens", `"foo bar"`, "service test", `"foo bar" -path:service -path:test`},
+		{"extra whitespace ignored", "Engine", "  a   b ", "Engine -path:a -path:b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := appendPathExcludes(tt.query, tt.pathExclude); got != tt.want {
+				t.Errorf("appendPathExcludes(%q,%q) = %q, want %q", tt.query, tt.pathExclude, got, tt.want)
+			}
+		})
+	}
+}

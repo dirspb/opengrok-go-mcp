@@ -12,7 +12,7 @@ type SearchCodeInput struct {
 	PathPrefix       string   `json:"path_prefix,omitempty" jsonschema:"optional path substring to restrict results TO (e.g. \"src/\"); results must contain this in their path"`
 	FileType         string   `json:"file_type,omitempty" jsonschema:"optional file extension/type filter (e.g. \"java\"); omit to search all file types"`
 	Tokenized        *bool    `json:"tokenized,omitempty" jsonschema:"optional. By default a multi-word query with no operators is auto-quoted as an exact phrase (\"extends Foo\"), which returns far fewer, more relevant results. Set true to instead search the words as independent terms (bag-of-words)."`
-	PathExclude      string   `json:"path_exclude,omitempty" jsonschema:"optional path substring to EXCLUDE from results (e.g. \"test\" or \"legacy\"); appended as a Lucene -path: term. Distinct from path_prefix, which restricts results TO a path."`
+	PathExclude      string   `json:"path_exclude,omitempty" jsonschema:"optional path substring(s) to EXCLUDE from results; space-separate multiple values (e.g. \"test legacy\") and each becomes a Lucene -path: exclusion. Distinct from path_prefix, which restricts results TO a path."`
 	PageSize         int      `json:"page_size,omitempty" jsonschema:"optional results per page; omit for the server default"`
 	Cursor           *string  `json:"cursor,omitempty" jsonschema:"optional pagination cursor from a previous response's next_cursor; pass the same query to fetch the next page"`
 	IncludeLinks     *bool    `json:"include_links,omitempty" jsonschema:"optional; set false to omit display/raw URLs from results"`
@@ -381,7 +381,7 @@ type SearchAndReadInput struct {
 	PathPrefix       string   `json:"path_prefix,omitempty" jsonschema:"optional path substring to restrict results TO"`
 	FileType         string   `json:"file_type,omitempty" jsonschema:"optional file extension/type filter; omit to search all file types"`
 	Tokenized        *bool    `json:"tokenized,omitempty" jsonschema:"optional. By default a multi-word query with no operators is auto-quoted as an exact phrase; set true to search the words as independent terms."`
-	PathExclude      string   `json:"path_exclude,omitempty" jsonschema:"optional path substring to EXCLUDE from results; appended as a Lucene -path: term. Distinct from path_prefix, which restricts results TO a path."`
+	PathExclude      string   `json:"path_exclude,omitempty" jsonschema:"optional path substring(s) to EXCLUDE from results; space-separate multiple values and each becomes a Lucene -path: exclusion. Distinct from path_prefix, which restricts results TO a path."`
 	MaxResults       int      `json:"max_results,omitempty" jsonschema:"optional maximum results to read; 0 means read all"`
 	LinesBefore      int      `json:"lines_before,omitempty" jsonschema:"optional lines of context before each match; 0 uses the budget default"`
 	LinesAfter       int      `json:"lines_after,omitempty" jsonschema:"optional lines of context after each match; 0 uses the budget default"`
