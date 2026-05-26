@@ -2478,3 +2478,86 @@ func TestSearchSymbolDefinitionsDoesNotAutoQuote(t *testing.T) {
 		t.Fatalf("symbol query = %q, want unmodified (no auto-quote on symbol path)", got)
 	}
 }
+
+func TestSearchCodeAutoQuoteWarning(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	out, err := service.SearchCode(context.Background(), SearchCodeInput{Query: "extends PaymentProcessor"})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if out.Warning == nil || !strings.Contains(*out.Warning, "tokenized:true") {
+		t.Fatalf("warning = %v, want auto-quote note mentioning tokenized:true", out.Warning)
+	}
+}
+
+func TestSearchCodeDateWarningInFullText(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	out, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query: "date:[20230101 TO 20261231]",
+		Mode:  string(opengrok.ModeFullText),
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if out.Warning == nil || !strings.Contains(*out.Warning, "history mode") {
+		t.Fatalf("warning = %v, want date:-in-full_text note", out.Warning)
+	}
+}
+
+func TestSearchCodeNoDateWarningInHistory(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	out, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query: "date:[20230101 TO 20261231]",
+		Mode:  string(opengrok.ModeHistory),
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if out.Warning != nil && strings.Contains(*out.Warning, "history mode") {
+		t.Fatalf("warning = %q, want no date: note in history mode", *out.Warning)
+	}
+}
+
+func TestSearchCodeDateWarningIgnoresPathExclude(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	out, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query:       "Engine",
+		Mode:        string(opengrok.ModeFullText),
+		PathExclude: "date:weird",
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if out.Warning != nil && strings.Contains(*out.Warning, "history mode") {
+		t.Fatalf("warning = %q, want no date: note from path_exclude value", *out.Warning)
+	}
+}
+
+func TestSearchCodeLargeResultBackstopQuotesUserQuery(t *testing.T) {
+	backend := &fakeBackend{searchResult: opengrok.SearchResult{TotalHits: 1200, Hits: []opengrok.Hit{}}}
+	service := NewService(testConfig(), backend)
+
+	tokenized := true
+	out, err := service.SearchCode(context.Background(), SearchCodeInput{
+		Query:       "extends PaymentProcessor",
+		Tokenized:   &tokenized,
+		PathExclude: "legacy",
+	})
+	if err != nil {
+		t.Fatalf("SearchCode error: %v", err)
+	}
+	if out.Warning == nil || !strings.Contains(*out.Warning, `"extends PaymentProcessor"`) {
+		t.Fatalf("warning = %v, want suggestion quoting the user query (not the path-excluded query)", out.Warning)
+	}
+	if strings.Contains(*out.Warning, "-path:legacy") {
+		t.Fatalf("warning = %q, should not echo the -path: term", *out.Warning)
+	}
+}

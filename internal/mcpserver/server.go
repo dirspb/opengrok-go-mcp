@@ -2083,9 +2083,18 @@ func (s *Service) search(ctx context.Context, req searchRequest) (SearchOutput, 
 	}
 
 	var warning *string
+	if req.autoQuoted {
+		warning = appendWarning(warning, "Auto-quoted multi-word query for exact-phrase match. Pass tokenized:true to search the words as independent terms.")
+	}
+	if req.userQuery != "" && req.mode != string(opengrok.ModeHistory) && strings.Contains(req.userQuery, "date:") {
+		warning = appendWarning(warning, "date: is only valid in history mode and was ignored in this search.")
+	}
 	if result.TotalHits > searchWarnThreshold {
-		w := fmt.Sprintf("Query returned %d hits. Consider narrowing with path_prefix, file_type, or a more specific query.", result.TotalHits)
-		warning = &w
+		msg := fmt.Sprintf("Query returned %d hits. Consider narrowing with path_prefix, file_type, or a more specific query.", result.TotalHits)
+		if req.userQuery != "" && !req.autoQuoted && isMultiWord(req.userQuery) {
+			msg += fmt.Sprintf(" For an exact phrase, wrap it in quotes: %q.", req.userQuery)
+		}
+		warning = appendWarning(warning, msg)
 	}
 
 	results := s.results(result.Hits, project, req.mode, req.symbol, s.includeLinks(req.includeLinks))
