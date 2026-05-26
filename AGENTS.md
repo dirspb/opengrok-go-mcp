@@ -104,6 +104,13 @@ updates, and trivial test-only cleanups may skip the full workflow.
 - Update `docs/agent-usage-patterns.md` when agent workflow guidance changes.
 - Keep examples concise and avoid duplicating long tool schemas in multiple
   places.
+- Update `docs/tool-contracts.md` when MCP input/output/error/warning/pagination
+  contract semantics change.
+- Update `docs/agent-ux.md` when guidance on writing descriptions/warnings
+  changes; `docs/review-checklist.md` when the review rubric changes.
+- Update `docs/release-process.md` and `CHANGELOG.md` for releases; `SECURITY.md`
+  for disclosure-policy changes.
+- See `docs/README.md` for the documentation source-of-truth map.
 
 ## Common Mistakes To Avoid
 
