@@ -25,6 +25,9 @@ code, read source files, follow symbols, and answer with source citations.
 - Preserve `citation.url` for source-backed answers.
 - New or changed response-size, tool-call, or auto-fetch behavior needs limits,
   defaults, and warnings.
+- For the detailed field-by-field contract (inputs, outputs, errors, warnings,
+  pagination, citations, truncation, capability gates, compatibility,
+  experimental fields), see `docs/tool-contracts.md`.
 
 ## OpenGrok Semantics And Limitations
 
