@@ -66,6 +66,8 @@ code, read source files, follow symbols, and answer with source citations.
   network assumptions unless a spec changes that.
 - `OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY` is only for controlled internal hosts.
 - Memory is process-scoped, ephemeral, and disabled over HTTP.
+- For vulnerability disclosure, see `SECURITY.md` (private reporting via GitHub
+  Security Advisories).
 
 ## Spec Kit Workflow
 
