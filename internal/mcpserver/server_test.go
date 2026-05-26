@@ -2609,3 +2609,33 @@ func TestSearchCodeBareQueryCursorRoundTrips(t *testing.T) {
 		t.Fatalf("second page %d should advance past first page %d", second.Page, first.Page)
 	}
 }
+
+func TestSearchToolDescriptionsMentionQuoting(t *testing.T) {
+	cfg := testConfig()
+	cfg.ToolSurface = config.ToolSurfaceFull
+	cfg.Capabilities = config.Capabilities{SearchCode: true, GetFileContext: true}
+	server := NewMCPServer(cfg, &fakeBackend{}, "test")
+	clientSession, cleanup := connectMCPServer(t, server)
+	defer cleanup()
+
+	tools, err := clientSession.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools error: %v", err)
+	}
+	descs := map[string]string{}
+	for _, tool := range tools.Tools {
+		descs[tool.Name] = tool.Description
+	}
+	for _, name := range []string{"search_code", "search_and_read"} {
+		d, ok := descs[name]
+		if !ok {
+			t.Fatalf("tool %q not registered", name)
+		}
+		if !strings.Contains(d, "quote") {
+			t.Errorf("tool %q description should mention quoting; got: %s", name, d)
+		}
+		if !strings.Contains(d, "tokenized") {
+			t.Errorf("tool %q description should mention tokenized opt-out", name)
+		}
+	}
+}

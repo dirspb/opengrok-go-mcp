@@ -1372,7 +1372,7 @@ func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Serv
 	if cfg.Capabilities.SearchCode {
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_code",
-			Description: "Search reference/base code in OpenGrok. Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use mode full_text, path, history, definition, or reference. For file-name searches use mode=path. Use returned file_path/project with read_file instead of fetching display_url/raw_url yourself. When answering about a specific file or class, include the selected result's citation.url.",
+			Description: "Search reference/base code in OpenGrok (Apache Lucene backend). Omit project unless the user explicitly names an OpenGrok project; do not infer project from the local repository name. Use mode full_text, path, history, definition, or reference; for file-name searches use mode=path.\n\nQUERY SYNTAX — wrap multi-word queries in quotes for exact-phrase matching. Unquoted `extends PaymentProcessor` tokenises into independent terms and returns 1000+ noisy hits; quoted \"extends PaymentProcessor\" returns ~7 exact hits. This server AUTO-QUOTES bare multi-word queries by default and notes it in the response warning; pass tokenized:true to search the words as independent terms instead. Use path_exclude to drop matches under a path (e.g. path_exclude=test) and path_prefix to restrict to a path.\n\nInline Lucene syntax also works in the query string: -path:legacy (exclude), +path:domain (require), defs:ClassName (symbol definition), refs:ClassName (symbol reference), hist:bugfix (commit messages, history mode), date:[20230101 TO 20261231] (history mode only). SILENT FAILURES: date: is ignored outside history mode; wildcards (* ?) cannot be used inside quoted phrases.\n\nUse returned file_path/project with read_file instead of fetching display_url/raw_url yourself. When answering about a specific file or class, include the selected result's citation.url.",
 			Annotations: readOnlyAnnotations,
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input SearchCodeInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.SearchCode(ctx, input)
@@ -1382,7 +1382,7 @@ func registerFullTools(server *mcp.Server, coercer *scalarCoercer, service *Serv
 	if cfg.Capabilities.SearchCode && cfg.Capabilities.GetFileContext {
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "search_and_read",
-			Description: "Search OpenGrok and read the file content around each match in a single call. Reduces round trips for exploratory searches.",
+			Description: "Search OpenGrok and read the file content around each match in a single call, reducing round trips. Uses the same query interface as search_code.\n\nQUERY SYNTAX — wrap multi-word queries in quotes (\"extends PaymentProcessor\", not `extends PaymentProcessor`); bare multi-word queries are auto-quoted by default, pass tokenized:true to opt out. Inline Lucene syntax works: -path:legacy, +path:domain, defs:ClassName. Use path_exclude to drop matches under a path. date: is silently ignored outside history mode; wildcards cannot be used inside quoted phrases.",
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input SearchAndReadInput) (*mcp.CallToolResult, SearchAndReadOutput, error) {
 			output, err := service.SearchAndRead(ctx, input)
 			return nil, output, err
@@ -1563,7 +1563,7 @@ func registerCompactTools(server *mcp.Server, coercer *scalarCoercer, service *S
 	if cfg.Capabilities.SearchCode || cfg.Capabilities.SearchSymbolDefinitions || cfg.Capabilities.SearchSymbolReferences {
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "opengrok_search",
-			Description: "Search OpenGrok code and symbols. operation=code searches text/path/history/definition/reference; operation=definitions finds symbol definitions; operation=references finds symbol references. Payload is the selected operation's input object.",
+			Description: "Search OpenGrok code and symbols. operation=code searches text/path/history/definition/reference; operation=definitions finds symbol definitions; operation=references finds symbol references. Payload is the selected operation's input object.\n\nFor operation=code, the payload query field follows Lucene syntax. Wrap multi-word queries in quotes: \"extends PaymentProcessor\" returns ~7 exact results; unquoted `extends PaymentProcessor` returns 1000+ tokenised hits. Bare multi-word queries are auto-quoted by default; set payload.tokenized=true to search words as independent terms. Payload fields: query, mode, path_prefix, path_exclude, file_type, tokenized. Inline field syntax also works: -path:legacy, +path:domain, defs:ClassName, date:[20230101 TO 20261231] (history mode only; silently ignored otherwise).",
 			InputSchema: compactInputSchema("one of: code, definitions, references"),
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactSearchInput) (*mcp.CallToolResult, SearchOutput, error) {
 			output, err := service.CompactSearch(ctx, input)
@@ -1597,7 +1597,7 @@ func registerCompactTools(server *mcp.Server, coercer *scalarCoercer, service *S
 		(cfg.Capabilities.SearchCode || (cfg.Capabilities.SearchSymbolDefinitions && cfg.Capabilities.SearchSymbolReferences)) {
 		addTool(server, coercer, &mcp.Tool{
 			Name:        "opengrok_compound",
-			Description: "Compound OpenGrok operations. operation=search_and_read searches and reads file content around matches; operation=find_symbol_and_references finds a symbol's definition and references. Each operation payload matches the corresponding full tool input.",
+			Description: "Compound OpenGrok operations. operation=search_and_read searches and reads file content around matches; operation=find_symbol_and_references finds a symbol's definition and references. Each operation payload matches the corresponding full tool input.\n\nFor operation=search_and_read, the query field follows the same Lucene syntax as opengrok_search: wrap multi-word queries in quotes (\"extends PaymentProcessor\"); bare multi-word queries are auto-quoted by default, set payload.tokenized=true to opt out. Use -path:legacy / +path:domain / defs:ClassName inline, or the path_exclude payload field. date: is silently ignored outside history mode.",
 			InputSchema: compactInputSchema("one of: search_and_read, find_symbol_and_references"),
 		}, func(ctx context.Context, req *mcp.CallToolRequest, input CompactCompoundInput) (*mcp.CallToolResult, any, error) {
 			output, err := service.CompactCompound(ctx, input)
