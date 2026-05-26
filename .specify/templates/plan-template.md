@@ -18,29 +18,45 @@
   the iteration process.
 -->
 
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]
+**Language/Version**: Go 1.24 or NEEDS CLARIFICATION
 
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
+**Primary Dependencies**: `github.com/modelcontextprotocol/go-sdk/mcp`, OpenGrok HTTP API, or NEEDS CLARIFICATION
 
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]
+**Storage**: In-memory process state only, configuration via environment variables, or N/A
 
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]
+**Testing**: `go test ./...`; targeted package tests before full-suite verification
 
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
+**Target Platform**: Local stdio MCP server and loopback HTTP transport, or NEEDS CLARIFICATION
 
-**Project Type**: [e.g., library/cli/web-service/mobile-app/compiler/desktop-app or NEEDS CLARIFICATION]
+**Project Type**: Go CLI/MCP server
 
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]
+**Performance Goals**: Agent-friendly latency and bounded response sizes; specify page sizes, caps, and concurrency where changed
 
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]
+**Constraints**: Preserve MCP schema compatibility, capability gating, citation URLs, warning semantics, and secure environment-based auth
 
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Scale/Scope**: OpenGrok projects and result sets covered by the affected tools; include pagination and truncation behavior
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- **MCP Contract**: Identify every changed tool, resource, schema field,
+  warning, cursor, citation, capability gate, and tool-surface variant.
+- **OpenGrok Semantics**: State whether behavior is full-text, path,
+  definition, reference, heuristic, page-local, truncated, or fallback-based.
+- **Test Evidence**: List the tests that fail against old behavior or
+  otherwise prove the new behavior, plus the targeted verification command for
+  each behavioral slice. For non-trivial behavior changes, state whether tasks
+  are ordered test-first or why another sequence is clearer.
+- **Security**: Confirm secrets stay in environment variables, HTTP remains
+  loopback-first, and risky options are explicit and documented.
+- **Compatibility and Docs**: Note any public behavior or default changes,
+  migration impact, and required README or `docs/` updates.
+- **Experimental Surface**: Identify any experimental tools, operations,
+  config names, and docs labels, or state "None".
+- **Resource Bounds**: Define explicit limits, defaults, and warnings for any
+  feature that can increase response size, tool-call count, or automatic file
+  fetching.
 
 ## Project Structure
 
@@ -65,39 +81,15 @@ specs/[###-feature]/
 -->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
-├── cli/
-└── lib/
-
-tests/
-├── contract/
-├── integration/
-└── unit/
-
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
-backend/
-├── src/
-│   ├── models/
-│   ├── services/
-│   └── api/
-└── tests/
-
-frontend/
-├── src/
-│   ├── components/
-│   ├── pages/
-│   └── services/
-└── tests/
-
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
-
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+cmd/opengrok-go-mcp/
+internal/cache/
+internal/config/
+internal/cursor/
+internal/links/
+internal/mcpserver/
+internal/opengrok/
+docs/
+README.md
 ```
 
 **Structure Decision**: [Document the selected structure and reference the real

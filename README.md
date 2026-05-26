@@ -259,6 +259,30 @@ Choose the setup that matches your usage:
 
 Avoid passing secrets as CLI flags. Use environment variables for OpenGrok auth tokens.
 
+## Development Workflow
+
+This project uses GitHub Spec Kit for non-trivial feature planning.
+
+For meaningful behavior changes, new MCP tools, schema changes, configuration
+changes, or changes that affect agent-facing behavior, contributors should
+start from the project constitution:
+
+- `.specify/memory/constitution.md`
+
+Feature work should generally produce:
+
+- `specs/<feature>/spec.md`
+- `specs/<feature>/plan.md`
+- `specs/<feature>/tasks.md`
+
+Small bug fixes, documentation edits, dependency bumps, and mechanical
+refactors do not require a full Spec Kit workflow unless they affect the public
+MCP contract.
+
+All changes must preserve the MCP contract, OpenGrok semantics, security
+posture, compatibility expectations, and documentation requirements described
+in the constitution.
+
 ## Known Limitations
 
 - Large project traversal is bounded, and some search and discovery

@@ -78,6 +78,15 @@
 - What happens when [boundary condition]?
 - How does system handle [error scenario]?
 
+## Constitution Alignment *(mandatory)*
+
+- **MCP Contract Impact**: [Tools/resources/schema fields/warnings/cursors/citations changed, or "None"]
+- **OpenGrok Semantics**: [Full-text/path/definition/reference/heuristic/page-local/truncated/fallback behavior]
+- **Security Impact**: [Environment variables, tokens, HTTP exposure, TLS/raw fallback risk, or "None"]
+- **Documentation Impact**: [README/docs sections that must change, or "None"]
+- **Experimental Impact**: [Experimental labels in tool descriptions/docs/config names, or "None"]
+- **Resource Bounds**: [Response-size, tool-call, automatic-fetch limits/defaults/warnings, or "None"]
+
 ## Requirements *(mandatory)*
 
 <!--
@@ -87,11 +96,12 @@
 
 ### Functional Requirements
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+- **FR-001**: System MUST [specific MCP capability or behavior]
+- **FR-002**: System MUST [schema, pagination, cursor, citation, or warning contract]
+- **FR-003**: Agents MUST be able to [key interaction or workflow]
+- **FR-004**: System MUST [capability-gating, fallback, or error behavior]
+- **FR-005**: System MUST [documentation, security, or compatibility behavior]
+- **FR-006**: System MUST [experimental labeling or resource-bound behavior if applicable]
 
 *Example of marking unclear requirements:*
 
