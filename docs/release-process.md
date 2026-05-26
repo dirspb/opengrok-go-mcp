@@ -1,7 +1,7 @@
 # Release Process
 
-Releases are manual: push a git tag and generate GitHub Release notes from the
-changelog. There is no release CI and no goreleaser config.
+Releases are manual: push a git tag, then create a GitHub Release whose body
+you paste from `CHANGELOG.md`. There is no release CI and no goreleaser config.
 
 ## Versioning
 
@@ -36,7 +36,9 @@ pin the exact beta tag (e.g. `@v0.3.0-beta.2`).
    git tag -a vX.Y.Z -m "vX.Y.Z"
    git push origin vX.Y.Z
    ```
-4. Create a GitHub Release and generate notes from the changelog entry.
+4. Create a GitHub Release for the tag. Copy the matching `[vX.Y.Z] - DATE`
+   section from `CHANGELOG.md` into the release description (GitHub does not
+   auto-import `CHANGELOG.md` unless you add release automation later).
 
 ## Changelog Rules
 

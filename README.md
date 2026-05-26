@@ -149,36 +149,8 @@ Common optional settings:
 - `OPENGROK_MCP_MEMORY_ENABLED`: default `true`. Set to `false` to disable
   process-scoped memory tools. Memory tools are never exposed over HTTP.
 
-Less common:
-
-- `OPENGROK_MCP_PROJECT_REQUIRED`: default `true`.
-- `OPENGROK_MCP_PROBE_FILE`: optional `project/path/to/file` probe for file-read capability.
-- `OPENGROK_MCP_LOG_LEVEL`: reserved logging level setting.
-- `OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY=true`: disable TLS certificate verification. Use only against internal OpenGrok instances with invalid or mismatched certificates (e.g. expired corporate certs). Never use against public or untrusted hosts.
-- `OPENGROK_MCP_AUTO_EXPAND_CONTEXT`: default `true`. Set to `false` to disable automatic context expansion in search results.
-- `OPENGROK_MCP_CONTEXT_BEFORE`: default `5`. Lines before a match to include in auto-expanded context.
-- `OPENGROK_MCP_CONTEXT_AFTER`: default `10`. Lines after a match to include in auto-expanded context.
-- `OPENGROK_MCP_MAX_EXPANDED_RESULTS`: default `10`. Maximum number of search results to expand context for.
-- `OPENGROK_MCP_MAX_EXPANDED_FILES`: default `5`. Maximum number of unique files to fetch context from.
-- `OPENGROK_MCP_CONTEXT_FETCH_CONCURRENCY`: default `3`. Number of concurrent file fetches during context expansion.
-- `OPENGROK_MCP_RETRY_MAX_ATTEMPTS`: default `2`. Maximum retry attempts for transient OpenGrok errors (transport failures, HTTP 429, HTTP 5xx).
-- `OPENGROK_MCP_RETRY_BASE_DELAY`: default `200ms`. Base delay for exponential backoff between retries.
-- `OPENGROK_MCP_CURSOR_SECRET`: optional HMAC secret for cursor signing. Set in
-  shared or remote deployments where clients should not be able to tamper with
-  cursors.
-- `OPENGROK_MCP_CACHE_ENABLED`: default `false`. Enables the in-process response
-  cache for supported operations.
-- `OPENGROK_MCP_CACHE_TTL`: default `5m`. Cache entry lifetime.
-- `OPENGROK_MCP_CACHE_MAX_SIZE`: default `1000`. Maximum cache entries.
-- `OPENGROK_MCP_BUDGET_MINIMAL_BEFORE`, `OPENGROK_MCP_BUDGET_MINIMAL_AFTER`,
-  `OPENGROK_MCP_BUDGET_MINIMAL_RESULTS`, `OPENGROK_MCP_BUDGET_MINIMAL_FILES`:
-  override the `minimal` context budget.
-- `OPENGROK_MCP_BUDGET_DEFAULT_BEFORE`, `OPENGROK_MCP_BUDGET_DEFAULT_AFTER`,
-  `OPENGROK_MCP_BUDGET_DEFAULT_RESULTS`, `OPENGROK_MCP_BUDGET_DEFAULT_FILES`:
-  override the `default` context budget.
-- `OPENGROK_MCP_BUDGET_MAXIMAL_BEFORE`, `OPENGROK_MCP_BUDGET_MAXIMAL_AFTER`,
-  `OPENGROK_MCP_BUDGET_MAXIMAL_RESULTS`, `OPENGROK_MCP_BUDGET_MAXIMAL_FILES`:
-  override the `maximal` context budget.
+Full matrix (defaults, context expansion, retries, cache, cursor signing,
+context budgets, probes, TLS): see [docs/configuration.md](docs/configuration.md).
 
 ## Tool Surface
 
@@ -315,9 +287,9 @@ start from the project constitution:
 
 Feature work should generally produce:
 
-- `specs/<feature>/spec.md`
-- `specs/<feature>/plan.md`
-- `specs/<feature>/tasks.md`
+- `specs/FEATURE/spec.md`
+- `specs/FEATURE/plan.md`
+- `specs/FEATURE/tasks.md`
 
 Small bug fixes, documentation edits, dependency bumps, and mechanical
 refactors do not require a full Spec Kit workflow unless they affect the public

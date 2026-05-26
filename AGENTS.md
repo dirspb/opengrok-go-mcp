@@ -78,9 +78,9 @@ usage.
 
 Start from `.specify/memory/constitution.md`. Feature work generally produces:
 
-- `specs/<feature>/spec.md`
-- `specs/<feature>/plan.md`
-- `specs/<feature>/tasks.md`
+- `specs/FEATURE/spec.md`
+- `specs/FEATURE/plan.md`
+- `specs/FEATURE/tasks.md`
 
 Small docs fixes, typo fixes, formatting-only changes, dependency metadata
 updates, and trivial test-only cleanups may skip the full workflow.
@@ -99,6 +99,7 @@ updates, and trivial test-only cleanups may skip the full workflow.
 ## Documentation Update Rules
 
 - Update `README.md` for human-facing setup, configuration, or behavior changes.
+- Update `docs/configuration.md` when environment variables or defaults change.
 - Update `docs/limitations.md` when behavior is best-effort, heuristic,
   truncated, page-local, or security-sensitive.
 - Update `docs/agent-usage-patterns.md` when agent workflow guidance changes.

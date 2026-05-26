@@ -1,5 +1,8 @@
-<!-- SPECKIT START -->
-For project governance, read `.specify/memory/constitution.md`.
-For active feature work, also read `specs/<feature>/plan.md` when it exists for
-the feature being changed.
-<!-- SPECKIT END -->
+@AGENTS.md
+
+GitHub Copilot notes:
+
+- Use the Spec Kit workflow for non-trivial changes.
+- For active feature work, check `specs/FEATURE/plan.md` when it exists.
+- Prefer concise implementation summaries.
+- Do not compact away project constraints.

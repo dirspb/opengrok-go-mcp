@@ -7,6 +7,10 @@ When implementing, check the `status` field first — only items marked `planned
 or `approved` are actionable for implementation.
 -->
 
+Roadmap items are directional notes, not implementation authority. Non-trivial
+work must be converted into Spec Kit artifacts under `specs/FEATURE/` before
+implementation (see `CONTRIBUTING.md` and `AGENTS.md`).
+
 ---
 
 ## Item: 001 — Mandatory Cursor Signing in HTTP Mode

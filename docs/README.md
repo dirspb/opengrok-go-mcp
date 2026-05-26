@@ -6,6 +6,7 @@ Every concern has exactly one home; docs link to canon instead of restating it.
 |---|---|
 | Normative principles / MUST rules | [`../.specify/memory/constitution.md`](../.specify/memory/constitution.md) |
 | Contributor quick-reference | [`../AGENTS.md`](../AGENTS.md) |
+| Environment variable reference | [`configuration.md`](configuration.md) |
 | Detailed tool contract | [`tool-contracts.md`](tool-contracts.md) |
 | Authoring the agent surface | [`agent-ux.md`](agent-ux.md) |
 | Using the tools (consumer side) | [`agent-usage-patterns.md`](agent-usage-patterns.md) |

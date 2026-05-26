@@ -2,6 +2,11 @@
 
 <!-- What does this change do, and why? -->
 
+## Impact
+
+- **Spec-impact:** updated / none
+- **Docs-impact:** updated / none
+
 ## Spec Kit
 
 - [ ] This change has a corresponding spec/design (or links one)
