@@ -7,32 +7,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-10
+
 ### Added
-- GoReleaser release workflow on `v*` tags: cross-compiled binaries, checksums,
-  SPDX SBOMs, and GitHub Release attachments (`.github/workflows/release.yml`,
-  `.goreleaser.yml`).
+- **Minimal setup surface:** `OPENGROK_MCP_BASE_URL` alone is sufficient for
+  typical instances; projects and capabilities are discovered at startup.
+- `OPENGROK_MCP_DISABLE_PROJECT_SCRAPE` opt-out for web-UI project discovery.
+- Web-UI project discovery via startup resolution ladder (`configured → api →
+  scraped → none`) when the REST project list is unavailable.
+- Startup probe failure classification in logs (TLS hostname mismatch with cert
+  SAN hostnames, endpoint-restricted vs unauthorized, feature-unsupported).
+- Actionable startup log when OpenGrok returns unauthorized responses and no auth
+  token is configured.
 - Hermetic stdio subprocess eval harness in `evals/` (dataset-driven cases,
   markdown/JSON reports, `go test ./evals/`).
 - GitHub Actions CI (`.github/workflows/ci.yml`): full test suite on PR/push;
   README eval summary auto-update on push to `main`.
-- `OPENGROK_MCP_DISABLE_PROJECT_SCRAPE` opt-out for web-UI project discovery.
-- Actionable startup log when OpenGrok returns unauthorized responses and no auth
-  token is configured.
+- GoReleaser release workflow on `v*` tags: cross-compiled binaries for
+  linux/darwin/windows on amd64/arm64, `checksums.txt`, SPDX SBOMs, and GitHub
+  Release attachments (`.github/workflows/release.yml`, `.goreleaser.yml`).
+- `internal/mcpserver/README.md` contributor file map after server split.
 
 ### Changed
-- Split `internal/mcpserver` monolith into per-concern files (non-functional
-  refactor; MCP contract unchanged).
-- README client setup: collapsible per-agent copy-paste configs; environment
-  variable tables consolidated under Client Setup.
 - **Breaking:** Web-UI project discovery runs by default when the REST project
   list fails (was opt-in via `OPENGROK_MCP_PROJECT_SCRAPE=true`). Set
   `OPENGROK_MCP_DISABLE_PROJECT_SCRAPE=true` to restore the old no-scrape behavior.
+- **Breaking:** `OPENGROK_MCP_API_TOKEN` now takes the full `Authorization` header
+  value (`Bearer <token>` or `Basic <credentials>`). `OPENGROK_MCP_BASIC_AUTH_TOKEN`
+  is removed.
 - `OPENGROK_MCP_DEFAULT_PROJECT` is never required at startup; auto-set when
   exactly one project is discovered.
 - Startup no longer exits when all search probes are unauthorized without a
   configured token; search tools are capability-gated with auth guidance in logs.
-- **Breaking:** `OPENGROK_MCP_API_TOKEN` now takes the full `Authorization` header value
-  (`Bearer <token>` or `Basic <credentials>`). `OPENGROK_MCP_BASIC_AUTH_TOKEN` is removed.
+- Split `internal/mcpserver` monolith into per-concern files (non-functional
+  refactor; MCP contract unchanged).
+- `list_projects` serves the startup-resolved project snapshot consistently with
+  search-project validation.
+- Default-project validation is deferred until after startup project discovery.
+- README client setup: collapsible per-agent configs, released-binary install
+  path, CI status badge; trimmed duplicated tool-surface and workflow sections
+  (canon remains in `docs/`).
+
+### Fixed
+- `OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY` now preserves default transport
+  behavior including `http.ProxyFromEnvironment` for forward-proxy setups.
+- Non-2xx OpenGrok HTTP responses surface as typed `StatusError` for clearer
+  probe diagnostics.
 
 ### Migration
 
@@ -43,22 +63,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 | `OPENGROK_MCP_BASIC_AUTH_TOKEN` | `OPENGROK_MCP_API_TOKEN="Basic <credentials>"` |
 | Bare `OPENGROK_MCP_API_TOKEN=<token>` (no scheme) | `OPENGROK_MCP_API_TOKEN="Bearer <token>"` |
 
-### Added (prior unreleased work)
-- Web-UI project discovery via startup scrape ladder (`configured → api → scraped → none`)
-  (default off): startup resolution ladder `configured → api → scraped → none`.
-- Startup probe failure classification in logs (TLS hostname mismatch with cert
-  SAN hostnames, endpoint-restricted vs unauthorized, feature-unsupported).
-- `list_projects` serves the startup-resolved project snapshot consistently with
-  search-project validation.
-
-### Fixed
-- `OPENGROK_MCP_INSECURE_SKIP_TLS_VERIFY` now preserves default transport
-  behavior including `http.ProxyFromEnvironment` for forward-proxy setups.
-
-### Changed
-- Default-project validation is deferred until after startup project discovery.
-- Non-2xx OpenGrok HTTP responses surface as typed `StatusError` for clearer
-  probe diagnostics.
+### Compatibility Notes
+- Pre-1.0 release: minor-version changes may still alter tool descriptions,
+  documentation, and configuration defaults.
+- MCP tool names, schemas, and response shapes are unchanged in this release;
+  the `internal/mcpserver` split is a maintainability refactor only.
+- Install via `go run …@v0.4.0` or download cross-compiled binaries from GitHub
+  Releases (verify `checksums.txt`).
 
 ## [0.3.0] - 2026-05-27
 

@@ -73,7 +73,7 @@ not installed (see README Client Setup).
 `CHANGELOG.md` in the repository root is the source of truth. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> For a full minor release, the changelog summarizes changes since the previous stable minor release, not only since the latest beta. So v0.3.0 is compared against v0.2.0; beta notes are referenced separately.
+> For a full minor release, the changelog summarizes changes since the previous stable minor release, not only since the latest beta. So v0.4.0 is compared against v0.3.0; beta notes are referenced separately.
 
 ## Compatibility Notes
 
