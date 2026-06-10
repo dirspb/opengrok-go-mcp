@@ -24,7 +24,8 @@ import (
 	"github.com/rokasklive/opengrok-go-mcp/internal/opengrok"
 )
 
-const version = "v0.3.0"
+// Set at link time by GoReleaser (-X main.version={{.Tag}}); "dev" for local builds.
+var version = "dev"
 
 const authRemediationLog = "OpenGrok returned unauthorized responses and no auth token is configured. " +
 	"Set OPENGROK_MCP_API_TOKEN to \"Bearer <token>\" or \"Basic <credentials>\" and restart."

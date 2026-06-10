@@ -41,8 +41,28 @@ work. A typical reverse-proxied instance needs nothing else.
 
 Copy a block below, replace the URL, restart the client.
 
+<details>
+<summary><strong>Released binary</strong> (no Go install)</summary>
+
+Download the archive for your OS/arch from [GitHub Releases](https://github.com/rokasklive/opengrok-go-mcp/releases), verify `checksums.txt`, and point your MCP client at the unpacked `opengrok-go-mcp` binary. Example (Claude Code):
+
+```json
+{
+  "mcpServers": {
+    "opengrok": {
+      "command": "/path/to/opengrok-go-mcp",
+      "env": {
+        "OPENGROK_MCP_BASE_URL": "https://your-opengrok-host/source/api/v1"
+      }
+    }
+  }
+}
+```
+
+</details>
+
 <details open>
-<summary><strong>Claude Code</strong></summary>
+<summary><strong>Claude Code</strong> (<code>go run</code>)</summary>
 
 Add to `~/.claude.json` under `mcpServers`, or run `claude mcp add`:
 
@@ -66,7 +86,7 @@ Add to `~/.claude.json` under `mcpServers`, or run `claude mcp add`:
 </details>
 
 <details>
-<summary><strong>OpenCode</strong></summary>
+<summary><strong>OpenCode</strong> (<code>go run</code>)</summary>
 
 Add to `opencode.json`:
 

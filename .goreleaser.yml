@@ -1,0 +1,49 @@
+version: 2
+
+project_name: opengrok-go-mcp
+
+before:
+  hooks:
+    - go mod tidy
+    - go test -race -count=1 ./...
+
+builds:
+  - id: opengrok-go-mcp
+    main: ./cmd/opengrok-go-mcp
+    binary: opengrok-go-mcp
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Tag}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - artifacts: archive
+
+changelog:
+  disable: true
+
+release:
+  github:
+  prerelease: auto

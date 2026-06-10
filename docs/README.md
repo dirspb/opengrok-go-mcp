@@ -13,6 +13,7 @@ Every concern has exactly one home; docs link to canon instead of restating it.
 | Operational limits / semantics | [`limitations.md`](limitations.md) |
 | Review rubric / reviewer prompt | [`review-checklist.md`](review-checklist.md) |
 | Release & versioning | [`release-process.md`](release-process.md) |
+| Release workflow | [`.github/workflows/release.yml`](../.github/workflows/release.yml) |
 | Changelog | [`../CHANGELOG.md`](../CHANGELOG.md) |
 | Security disclosure | [`../SECURITY.md`](../SECURITY.md) |
 | Issue reporting (prose) | [`reporting-issues.md`](reporting-issues.md) |

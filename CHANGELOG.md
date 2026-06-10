@@ -8,6 +8,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 ## [Unreleased]
 
 ### Added
+- GoReleaser release workflow on `v*` tags: cross-compiled binaries, checksums,
+  SPDX SBOMs, and GitHub Release attachments (`.github/workflows/release.yml`,
+  `.goreleaser.yml`).
 - Hermetic stdio subprocess eval harness in `evals/` (dataset-driven cases,
   markdown/JSON reports, `go test ./evals/`).
 - GitHub Actions CI (`.github/workflows/ci.yml`): full test suite on PR/push;

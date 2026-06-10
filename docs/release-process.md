@@ -1,9 +1,16 @@
 # Release Process
 
-Releases are manual: push a git tag, then create a GitHub Release whose body
-you paste from `CHANGELOG.md`. There is no release automation or goreleaser
-config. Pull requests and `main` run [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+Pull requests and `main` run [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
 (`go test -race ./...`, including the `evals/` harness).
+
+Tagged releases (`v*`) run [`.github/workflows/release.yml`](../.github/workflows/release.yml):
+tests, then [GoReleaser](https://goreleaser.com/) cross-compiles binaries for
+linux/darwin/windows on amd64 and arm64, uploads archives to the GitHub Release,
+generates `checksums.txt`, and SPDX SBOMs for each archive. Changelog text in
+the release description is still maintained manually from `CHANGELOG.md` (GoReleaser
+changelog generation is disabled).
+
+Optional follow-up: cosign/Sigstore signing of `checksums.txt` and artifacts.
 
 ## Versioning
 
@@ -15,15 +22,19 @@ Beta tags follow `vX.Y.Z-beta.N`.
 
 ## Beta Releases
 
-Tag the commit:
-
-```
-git tag vX.Y.Z-beta.N
-git push origin vX.Y.Z-beta.N
-```
+1. Update `CHANGELOG.md` and README install pins if needed.
+2. Push an annotated tag:
+   ```
+   git tag -a vX.Y.Z-beta.N -m "vX.Y.Z-beta.N"
+   git push origin vX.Y.Z-beta.N
+   ```
+3. Wait for the Release workflow to finish. GoReleaser marks semver prerelease
+   tags as GitHub prereleases automatically.
+4. Edit the GitHub Release description: paste the matching `[vX.Y.Z-beta.N]`
+   section from `CHANGELOG.md`.
 
 Beta behavior may change between beta iterations. README install snippets must
-pin the exact beta tag (e.g. `@v0.3.0-beta.2`).
+pin the exact beta tag (e.g. `@v0.3.0-beta.2`) when using `go run`.
 
 ## Full Releases
 
@@ -38,9 +49,24 @@ pin the exact beta tag (e.g. `@v0.3.0-beta.2`).
    git tag -a vX.Y.Z -m "vX.Y.Z"
    git push origin vX.Y.Z
    ```
-4. Create a GitHub Release for the tag. Copy the matching `[vX.Y.Z] - DATE`
-   section from `CHANGELOG.md` into the release description (GitHub does not
-   auto-import `CHANGELOG.md` unless you add release automation later).
+4. Wait for the Release workflow. Binaries, `checksums.txt`, and SBOMs attach to
+   the GitHub Release automatically.
+5. Edit the release description on GitHub: paste the matching `[vX.Y.Z] - DATE`
+   section from `CHANGELOG.md`.
+
+### Release artifacts
+
+Each tag produces archives named
+`opengrok-go-mcp_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) containing
+the `opengrok-go-mcp` binary, plus `checksums.txt` and SPDX SBOM files. Verify
+before use:
+
+```bash
+sha256sum -c checksums.txt
+```
+
+Point MCP client configs at the unpacked binary instead of `go run` when Go is
+not installed (see README Client Setup).
 
 ## Changelog Rules
 
