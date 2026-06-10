@@ -1,5 +1,7 @@
 # opengrok-go-mcp
 
+[![CI](https://github.com/rokasklive/opengrok-go-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/rokasklive/opengrok-go-mcp/actions/workflows/ci.yml)
+
 Agent-oriented MCP server for searching, navigating, and reading code through
 OpenGrok.
 
