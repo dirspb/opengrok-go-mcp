@@ -2,7 +2,7 @@
 
 Dataset-driven stdio subprocess tests for `opengrok-go-mcp`. Builds the real binary, talks MCP over stdio, and hits a hermetic OpenGrok fake.
 
-**Latest results:** root [README.md](../README.md#evaluation) (CI-updated).
+**Latest results:** root [README.md](../README.md#evaluation).
 
 ## Run
 
@@ -22,23 +22,30 @@ Reports (gitignored locally; CI uploads artifacts):
 | Contract | `evals/report.json`, `evals/report.md` |
 | Token benchmark | `evals/token_report.json`, `evals/token_report.md` |
 
-Refresh README locally (same steps as CI):
+Refresh README and committed baselines:
 
 ```bash
-./scripts/ci-update-eval-results.sh
+./scripts/update-eval-results.sh
 ```
 
-## CI and release automation
+## Git hook (local, optional)
+
+Install once per clone:
+
+```bash
+./scripts/install-githooks.sh
+```
+
+On `git push`, the pre-push hook runs `go test -race ./...`, patches README + `evals/baselines/`, and **blocks the push** if those tracked files changed until you commit them. Skip with `SKIP_EVAL_HOOK=1` or `git push --no-verify`.
+
+## CI
 
 | Event | Tests | README / baselines | Artifacts |
 |---|---|---|---|
-| Pull request | `go test -race ./...` (gate) | no auto-commit | `eval-reports` |
-| Push to `main` | same | opens PR → auto-merge | `eval-reports` |
-| Release tag `v*` | on tagged commit | opens PR → auto-merge on `main` | `eval-reports-<tag>` |
+| Pull request | `go test -race ./...` | not auto-updated | `eval-reports` |
+| Release tag `v*` | on tagged commit | not auto-updated | `eval-reports-<tag>` |
 
-Every green **main** push opens a bot PR with README + baseline updates (`--pr`); it auto-merges when CI passes (no direct push to `main`). **Release tags** use eval reports from the **tagged commit** with message `chore: eval snapshot for release vX.Y.Z`.
-
-**Repo settings (owner):** enable **Allow auto-merge** (Settings → General → Pull Requests). Branch protection on `main` should require PRs + status checks but **not** required human reviewers (or bot PRs cannot auto-merge).
+CI does **not** commit benchmark results to README. Update results locally (or via the pre-push hook) before pushing.
 
 ## Token economy benchmark
 
@@ -91,7 +98,7 @@ Output field names must match JSON tags on `internal/mcpserver` `*Output` types.
 Committed baselines live in [`evals/baselines/`](baselines/). Reports and the root README show **Δ vs baseline**.
 
 ```bash
-./scripts/ci-update-eval-results.sh
+./scripts/update-eval-results.sh
 ```
 
 Optional local-only baseline (gitignored): `evals/report.baseline.json` or `evals/token_report.baseline.json`.
