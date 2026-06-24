@@ -1,6 +1,24 @@
+<div align="center">
+
+<img src="assets/groky.png" alt="opengrok-go-mcp mascot Groky" width="400" />
+
 # opengrok-go-mcp
 
-[![CI](https://github.com/rokasklive/opengrok-go-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/rokasklive/opengrok-go-mcp/actions/workflows/ci.yml)
+**MCP code intelligence through OpenGrok.**
+
+*I have seen things you people wouldn’t grep.* — Groky, probably.
+
+<br/>
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge&logo=apache&logoColor=white)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=for-the-badge&logo=go&logoColor=white)](go.mod)
+[![CI](https://img.shields.io/github/actions/workflow/status/rokasklive/opengrok-go-mcp/ci.yml?style=for-the-badge&label=CI)](.github/workflows/ci.yml)
+[![MCP](https://img.shields.io/badge/MCP-Server-1f6feb?style=for-the-badge)](docs/tool-contracts.md)
+[![Evals](https://img.shields.io/badge/Evals-Tracked-success?style=for-the-badge)](evals/README.md)
+
+</div>
+
+---
 
 Agent-oriented MCP server for searching, navigating, and reading code through
 OpenGrok.
