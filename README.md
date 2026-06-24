@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="assets/groky.png" alt="opengrok-go-mcp mascot Groky" width="400" />
+<img src="assets/groky.png" alt="opengrok-go-mcp mascot" width="400" />
 
 # opengrok-go-mcp
 
 **Source-code intelligence for agents, powered by OpenGrok and Go.**
 
-*I have seen things you people wouldn’t grep.* — Groky, probably.
+*I have seen things you people wouldn’t grep.* — Senior Architect, probably.
 
 <br/>
 
