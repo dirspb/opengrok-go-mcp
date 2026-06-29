@@ -29,6 +29,17 @@ func composeDiscriminatedSchema(operations []compactOperationSchema) (*jsonschem
 	enum := make([]any, 0, len(operations))
 	opNames := make([]string, 0, len(operations))
 	oneOf := make([]*jsonschema.Schema, 0, len(operations))
+	// properties holds every field the server can read for ANY operation,
+	// declared at the top level so strict MCP clients (which validate and strip
+	// arguments against root-level properties, ignoring oneOf branches) keep
+	// per-operation fields like query/symbol/file_path instead of dropping them.
+	// The oneOf branches below remain the precise per-operation validation.
+	properties := map[string]*jsonschema.Schema{
+		"operation": {
+			Type: "string",
+			// Enum/Description filled in after the loop once opNames is known.
+		},
+	}
 	for _, op := range operations {
 		if op.Name == "" {
 			return nil, fmt.Errorf("composeDiscriminatedSchema: empty operation name")
@@ -43,19 +54,34 @@ func composeDiscriminatedSchema(operations []compactOperationSchema) (*jsonschem
 			return nil, err
 		}
 		oneOf = append(oneOf, branch)
+		// Surface each branch's fields at the top level (optional, first wins).
+		// Skip "operation" so the root keeps the enum discriminator below, not a
+		// per-branch const.
+		// Clone each prop: the SDK requires the published schema to form a tree,
+		// so top-level properties may not share pointers with oneOf branches.
+		for name, prop := range branch.Properties {
+			if name == "operation" {
+				continue
+			}
+			if _, exists := properties[name]; exists {
+				continue
+			}
+			cloned, err := cloneSchema(prop)
+			if err != nil {
+				return nil, fmt.Errorf("clone property %q for operation %q: %w", name, op.Name, err)
+			}
+			properties[name] = cloned
+		}
 	}
 
+	properties["operation"].Enum = enum
+	properties["operation"].Description = "Discriminator — enabled operations: " + strings.Join(opNames, ", ")
+
 	return &jsonschema.Schema{
-		Type: "object",
-		Properties: map[string]*jsonschema.Schema{
-			"operation": {
-				Type:        "string",
-				Enum:        enum,
-				Description: "Discriminator — enabled operations: " + strings.Join(opNames, ", "),
-			},
-		},
-		Required: []string{"operation"},
-		OneOf:    oneOf,
+		Type:       "object",
+		Properties: properties,
+		Required:   []string{"operation"},
+		OneOf:      oneOf,
 	}, nil
 }
 
