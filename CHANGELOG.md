@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). See
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-30
+
+### Fixed
+- **Compact tool schemas now work with strict MCP clients.** Per-operation input
+  fields such as `query`, `symbol`, `file_path`, and `line_number` are declared
+  at the top level of compact tool schemas as optional properties, while
+  operation-specific required fields and validation remain enforced by the
+  existing `oneOf` branches. This prevents clients that ignore nested `oneOf`
+  properties during argument filtering from dropping required fields before the
+  server receives the call.
+
 ## [0.5.0] - 2026-06-25
 
 ### Changed
