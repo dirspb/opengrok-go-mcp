@@ -47,6 +47,58 @@ func TestComposeDiscriminatedSchemaValidatesBranches(t *testing.T) {
 	}
 }
 
+// TestComposeDiscriminatedSchemaSurfacesFieldsAtTopLevel guards against the
+// strict-client bug where per-operation fields lived only in oneOf branches.
+// Strict MCP clients (e.g. Claude Desktop) validate and strip arguments against
+// root-level properties, ignoring oneOf, so fields like query must be declared
+// at the top level or they get dropped before reaching the server.
+func TestComposeDiscriminatedSchemaSurfacesFieldsAtTopLevel(t *testing.T) {
+	codeSchema, err := schemaForType[SearchCodeInput]()
+	if err != nil {
+		t.Fatalf("schemaForType SearchCodeInput: %v", err)
+	}
+	symbolSchema, err := schemaForType[SymbolSearchInput]()
+	if err != nil {
+		t.Fatalf("schemaForType SymbolSearchInput: %v", err)
+	}
+
+	schema, err := composeDiscriminatedSchema([]compactOperationSchema{
+		{Name: "code", Schema: codeSchema},
+		{Name: "definitions", Schema: symbolSchema},
+	})
+	if err != nil {
+		t.Fatalf("composeDiscriminatedSchema: %v", err)
+	}
+
+	for _, field := range []string{"operation", "query", "symbol"} {
+		if schema.Properties[field] == nil {
+			t.Fatalf("top-level properties missing %q: %#v", field, schema.Properties)
+		}
+	}
+
+	// operation must stay required; per-operation fields are optional at the top
+	// level (their exact requiredness lives in the oneOf branches).
+	if !slices.Contains(schema.Required, "operation") || len(schema.Required) != 1 {
+		t.Fatalf("top-level required = %#v, want only [operation]", schema.Required)
+	}
+
+	// additionalProperties:false at the top level would re-introduce stripping of
+	// any field we forgot to declare; it must not be set there.
+	if schema.AdditionalProperties != nil {
+		t.Fatalf("top-level additionalProperties should be unset, got %#v", schema.AdditionalProperties)
+	}
+
+	// Simulate a strict client: a valid args object validates against the
+	// published schema with query intact.
+	resolved, err := schema.Resolve(nil)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if err := resolved.Validate(map[string]any{"operation": "code", "query": "PolicyService"}); err != nil {
+		t.Fatalf("strict-client args with query rejected: %v", err)
+	}
+}
+
 func TestCompactSearchSchemaDeclaresRequiredFieldsPerBranch(t *testing.T) {
 	cfg := testConfig()
 	cfg.Capabilities = config.Capabilities{SearchCode: true, GetFileContext: true}
